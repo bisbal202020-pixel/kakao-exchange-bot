@@ -98,13 +98,29 @@ def format_currency_data(rates):
     formatted = []
     for rate in rates:
         code = (rate.get("currency") or "").split()[0]
+
+        change_raw = rate.get("change", "0")
+
+        arrow = ""
+        change_value = change_raw
+
+        if isinstance(change_raw, str):
+            if change_raw.startswith("+"):
+                arrow = "▲"
+                change_value = change_raw[1:]
+            elif change_raw.startswith("-"):
+                arrow = "▼"
+                change_value = change_raw[1:]
+
         formatted.append({
             "currency": f"{code} ({rate.get('name', code)})",
             "rate": rate.get("rate", ""),
-            "change": rate.get("change", "0"),
+            "change": f"{arrow} {change_value}".strip(),
             "flag": rate.get("flag", "")
         })
+
     return formatted
+
 
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
