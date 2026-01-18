@@ -64,6 +64,9 @@ def _to_sign(text: str) -> str:
     t = _clean(text)
     if not t:
         return "0"
+    # normalize unicode minus/dashes
+    t = t.replace("−", "-").replace("–", "-").replace("—", "-")
+    # normalize arrow-like symbols
     t = t.replace("▲", "+").replace("△", "+").replace("▼", "-").replace("▽", "-")
     t = t.replace(",", "")
     t = t.replace(" ", "")
@@ -87,13 +90,27 @@ def _abs_number_text(sign_text: str) -> str:
     return s or "0"
 
 
-def _format_line(name: str, value: str, chg: str, pct: str = "") -> str:
-    # value already formatted (with commas etc). chg can be raw sign or numeric.
+def _norm_pct(pct: str) -> str:
+    p = _clean(pct)
+    if not p:
+        return ""
+    # keep as-is but ensure it has %
+    if "%" not in p:
+        p = f"{p}%"
+    return p
+
+
+def _format_line_compact(name: str, value: str, chg: str, pct: str = "") -> str:
+    """ONE line per item to avoid Kakao basicCard truncation.
+    Example: 'USD(미국 달러) 1,475.50 ▲5.20 +0.35%'
+    """
     arr = _arrow(chg)
     chg_abs = _abs_number_text(chg)
-    pct_clean = _clean(pct)
-    pct_part = f" ({pct_clean})" if pct_clean else ""
-    return f"{name}\n{value} {arr}{chg_abs}{pct_part}"
+    pct_clean = _norm_pct(pct)
+
+    # pct like +0.35% / -0.06% / 0% (no parentheses)
+    pct_part = f" {pct_clean}" if pct_clean else ""
+    return f"{name} {value} {arr}{chg_abs}{pct_part}".strip()
 
 
 def _mk_headers():
@@ -162,27 +179,31 @@ def parse_rows_by_keywords(targets):
     return found
 
 
+# =========================
+# Data getters
+# =========================
+
 def get_exchange_rates():
     if _is_cache_valid("exchange"):
         return CACHE["exchange"]["data"]
 
     targets = [
-        {"key": "USD", "match_keywords": ["미국"], "label": "USD (미국 달러)"},
-        {"key": "JPY100", "match_keywords": ["일본"], "label": "JPY100 (일본 엔)"},
-        {"key": "EUR", "match_keywords": ["유로"], "label": "EUR (유로)"},
-        {"key": "CNY", "match_keywords": ["중국"], "label": "CNY (중국 위안)"},
-        {"key": "GBP", "match_keywords": ["영국"], "label": "GBP (영국 파운드)"},
+        {"key": "USD", "match_keywords": ["미국"], "label": "USD(미국 달러)"},
+        {"key": "JPY100", "match_keywords": ["일본"], "label": "JPY100(일본 엔)"},
+        {"key": "EUR", "match_keywords": ["유로"], "label": "EUR(유로)"},
+        {"key": "CNY", "match_keywords": ["중국"], "label": "CNY(중국 위안)"},
+        {"key": "GBP", "match_keywords": ["영국"], "label": "GBP(영국 파운드)"},
     ]
 
     found = parse_rows_by_keywords(targets)
 
     # Fallback if MK markup changes
     fallback = [
-        {"label": "USD (미국 달러)", "value": "1,475.50", "chg": "+5.20", "pct": "+0.35%"},
-        {"label": "JPY100 (일본 엔)", "value": "933.54", "chg": "+6.58", "pct": "+0.71%"},
-        {"label": "EUR (유로)", "value": "1,711.80", "chg": "+4.93", "pct": "+0.29%"},
-        {"label": "CNY (중국 위안)", "value": "211.78", "chg": "+0.63", "pct": "+0.30%"},
-        {"label": "GBP (영국 파운드)", "value": "1,974.66", "chg": "+7.40", "pct": "+0.38%"},
+        {"label": "USD(미국 달러)", "value": "1,475.50", "chg": "+5.20", "pct": "+0.35%"},
+        {"label": "JPY100(일본 엔)", "value": "933.54", "chg": "+6.58", "pct": "+0.71%"},
+        {"label": "EUR(유로)", "value": "1,711.80", "chg": "+4.93", "pct": "+0.29%"},
+        {"label": "CNY(중국 위안)", "value": "211.78", "chg": "+0.63", "pct": "+0.30%"},
+        {"label": "GBP(영국 파운드)", "value": "1,974.66", "chg": "+7.40", "pct": "+0.38%"},
     ]
 
     out = []
@@ -211,8 +232,8 @@ def get_major_indices():
         {"key": "KOSPI", "match_keywords": ["코스피"], "label": "코스피"},
         {"key": "KOSDAQ", "match_keywords": ["코스닥"], "label": "코스닥"},
         {"key": "NASDAQ", "match_keywords": ["나스닥"], "label": "나스닥"},
-        {"key": "DOW", "match_keywords": ["다우"], "label": "다우존스"},
-        {"key": "SP", "match_keywords": ["S&P"], "label": "S&P 500"},
+        {"key": "DOW", "match_keywords": ["다우"], "label": "다우"},
+        {"key": "SP", "match_keywords": ["S&P"], "label": "S&P500"},
     ]
 
     found = parse_rows_by_keywords(targets)
@@ -221,8 +242,8 @@ def get_major_indices():
         {"label": "코스피", "value": "4,840.74", "chg": "+43.19", "pct": "+0.90%"},
         {"label": "코스닥", "value": "954.59", "chg": "+3.43", "pct": "+0.36%"},
         {"label": "나스닥", "value": "23,515.38", "chg": "-14.63", "pct": "-0.06%"},
-        {"label": "다우존스", "value": "49,359.33", "chg": "-83.11", "pct": "-0.17%"},
-        {"label": "S&P 500", "value": "6,940.01", "chg": "-4.46", "pct": "-0.06%"},
+        {"label": "다우", "value": "49,359.33", "chg": "-83.11", "pct": "-0.17%"},
+        {"label": "S&P500", "value": "6,940.01", "chg": "-4.46", "pct": "-0.06%"},
     ]
 
     out = []
@@ -248,21 +269,21 @@ def get_major_commodities():
         return CACHE["commodities"]["data"]
 
     targets = [
-        {"key": "GOLD", "match_keywords": ["금"], "label": "금 (USD/oz)"},
-        {"key": "SILVER", "match_keywords": ["은"], "label": "은 (USD/oz)"},
-        {"key": "WTI", "match_keywords": ["WTI"], "label": "크루드오일 (USD/bbl)"},
-        {"key": "GAS", "match_keywords": ["천연가스"], "label": "천연가스 (USD/MMBtu)"},
-        {"key": "COPPER", "match_keywords": ["구리"], "label": "구리 (USD/lb)"},
+        {"key": "GOLD", "match_keywords": ["금"], "label": "금(USD/oz)"},
+        {"key": "SILVER", "match_keywords": ["은"], "label": "은(USD/oz)"},
+        {"key": "WTI", "match_keywords": ["WTI"], "label": "WTI(USD/bbl)"},
+        {"key": "GAS", "match_keywords": ["천연가스"], "label": "천연가스(USD/MMBtu)"},
+        {"key": "COPPER", "match_keywords": ["구리"], "label": "구리(USD/lb)"},
     ]
 
     found = parse_rows_by_keywords(targets)
 
     fallback = [
-        {"label": "금 (USD/oz)", "value": "2,035.40", "chg": "+12.30", "pct": "+0.61%"},
-        {"label": "은 (USD/oz)", "value": "23.45", "chg": "-0.12", "pct": "-0.51%"},
-        {"label": "크루드오일 (USD/bbl)", "value": "78.34", "chg": "+1.02", "pct": "+1.32%"},
-        {"label": "천연가스 (USD/MMBtu)", "value": "2.41", "chg": "-0.08", "pct": "-3.21%"},
-        {"label": "구리 (USD/lb)", "value": "3.84", "chg": "+0.04", "pct": "+1.05%"},
+        {"label": "금(USD/oz)", "value": "2,035.40", "chg": "+12.30", "pct": "+0.61%"},
+        {"label": "은(USD/oz)", "value": "23.45", "chg": "-0.12", "pct": "-0.51%"},
+        {"label": "WTI(USD/bbl)", "value": "78.34", "chg": "+1.02", "pct": "+1.32%"},
+        {"label": "천연가스(USD/MMBtu)", "value": "2.41", "chg": "-0.08", "pct": "-3.21%"},
+        {"label": "구리(USD/lb)", "value": "3.84", "chg": "+0.04", "pct": "+1.05%"},
     ]
 
     out = []
@@ -293,11 +314,11 @@ def get_crypto_bithumb():
 
     url = "https://api.bithumb.com/public/ticker/ALL_KRW"
     coins = [
-        ("BTC", "비트코인"),
-        ("ETH", "이더리움"),
-        ("XRP", "리플"),
-        ("SOL", "솔라나"),
-        ("DOGE", "도지코인"),
+        ("BTC", "BTC"),
+        ("ETH", "ETH"),
+        ("XRP", "XRP"),
+        ("SOL", "SOL"),
+        ("DOGE", "DOGE"),
     ]
 
     try:
@@ -308,19 +329,29 @@ def get_crypto_bithumb():
 
         data = j.get("data", {})
         out = []
-        for code, name in coins:
+        for code, label in coins:
             d = data.get(code) or {}
             price = d.get("closing_price", "")
             chg = d.get("fluctate_24H", "0")
             pct = d.get("fluctate_rate_24H", "0")
-            # normalize
-            price_text = f"{float(str(price).replace(',', '')):,.0f}원" if str(price).strip() else "-"
-            chg_text = str(chg)
-            pct_text = f"{float(str(pct)): +.2f}%".replace(" ", "")
+
+            # price
+            if str(price).strip():
+                price_text = f"{float(str(price).replace(',', '')):,.0f}원"
+            else:
+                price_text = "-"
+
+            # pct
+            try:
+                pct_f = float(str(pct))
+                pct_text = f"{pct_f:+.2f}%"
+            except Exception:
+                pct_text = _clean(str(pct))
+
             out.append({
-                "label": f"{name}",
+                "label": label,
                 "value": price_text,
-                "chg": chg_text,
+                "chg": str(chg),
                 "pct": pct_text,
             })
 
@@ -332,37 +363,36 @@ def get_crypto_bithumb():
 
     except Exception:
         fallback = [
-            {"label": "비트코인", "value": "-", "chg": "0", "pct": "0%"},
-            {"label": "이더리움", "value": "-", "chg": "0", "pct": "0%"},
-            {"label": "리플", "value": "-", "chg": "0", "pct": "0%"},
-            {"label": "솔라나", "value": "-", "chg": "0", "pct": "0%"},
-            {"label": "도지코인", "value": "-", "chg": "0", "pct": "0%"},
+            {"label": "BTC", "value": "-", "chg": "0", "pct": "0%"},
+            {"label": "ETH", "value": "-", "chg": "0", "pct": "0%"},
+            {"label": "XRP", "value": "-", "chg": "0", "pct": "0%"},
+            {"label": "SOL", "value": "-", "chg": "0", "pct": "0%"},
+            {"label": "DOGE", "value": "-", "chg": "0", "pct": "0%"},
         ]
         _set_cache("crypto", fallback)
         return fallback
 
 
 # =========================
-# Rank cards (best-effort placeholders for now)
-# You can wire these to MK rank pages later; structure is ready.
+# Rank cards (placeholders)
 # =========================
 
-def _placeholder_rank(title: str):
+def _placeholder_rank():
     return [
-        {"label": "1위", "value": "-", "chg": "0", "pct": "0%"},
-        {"label": "2위", "value": "-", "chg": "0", "pct": "0%"},
-        {"label": "3위", "value": "-", "chg": "0", "pct": "0%"},
-        {"label": "4위", "value": "-", "chg": "0", "pct": "0%"},
-        {"label": "5위", "value": "-", "chg": "0", "pct": "0%"},
+        {"label": "1위", "value": "-", "chg": "0", "pct": ""},
+        {"label": "2위", "value": "-", "chg": "0", "pct": ""},
+        {"label": "3위", "value": "-", "chg": "0", "pct": ""},
+        {"label": "4위", "value": "-", "chg": "0", "pct": ""},
+        {"label": "5위", "value": "-", "chg": "0", "pct": ""},
     ]
 
 
-def get_rank_data(cache_key: str, title: str):
+def get_rank_data(cache_key: str):
     if _is_cache_valid(cache_key):
         return CACHE[cache_key]["data"]
 
-    # TODO: connect to MK rank pages (kospi/kosdaq/mcap/volume) with stable endpoints.
-    data = _placeholder_rank(title)
+    # TODO: wire to real rank endpoints
+    data = _placeholder_rank()
     _set_cache(cache_key, data)
     return data
 
@@ -372,9 +402,10 @@ def get_rank_data(cache_key: str, title: str):
 # =========================
 
 def make_basic_card(title: str, lines: list[str], button_label: str | None = None, button_url: str | None = None):
+    # IMPORTANT: keep description short to avoid Kakao truncation
     card = {
         "title": title,
-        "description": "\n\n".join(lines).strip(),
+        "description": "\n".join([l for l in lines if l]).strip(),
     }
     if button_label and button_url:
         card["buttons"] = [
@@ -389,34 +420,32 @@ def make_basic_card(title: str, lines: list[str], button_label: str | None = Non
 
 def card_exchange():
     data = get_exchange_rates()
-    lines = [_format_line(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
+    lines = [_format_line_compact(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
     return make_basic_card("주요 환율", lines, "매일경제 마켓", "https://stock.mk.co.kr/")
 
 
 def card_indices():
     data = get_major_indices()
-    lines = [_format_line(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
+    lines = [_format_line_compact(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
     return make_basic_card("주요 증시", lines)
 
 
 def card_commodities():
     data = get_major_commodities()
-    lines = [_format_line(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
+    lines = [_format_line_compact(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
     return make_basic_card("주요 원자재 지수", lines)
 
 
 def card_crypto():
     data = get_crypto_bithumb()
-    lines = [_format_line(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
-    return make_basic_card("암호화폐", lines)
+    lines = [_format_line_compact(d["label"], d["value"], d["chg"], d.get("pct", "")) for d in data]
+    return make_basic_card("암호화폐 (빗썸)", lines)
 
 
 def card_rank(title: str, cache_key: str):
-    data = get_rank_data(cache_key, title)
-    # Render rank lines compactly (one line per item)
-    lines = []
-    for d in data:
-        lines.append(_format_line(d["label"], d["value"], d["chg"], d.get("pct", "")))
+    data = get_rank_data(cache_key)
+    # very compact: '1위 -'
+    lines = [f"{d['label']} {d['value']}" for d in data]
     return make_basic_card(title, lines)
 
 
@@ -426,7 +455,7 @@ def card_rank(title: str, cache_key: str):
 
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
-    # Build a single carousel with basicCards (max 10)
+    # Kakao basicCard carousel max is 10 items.
     cards = [
         card_exchange(),
         card_indices(),
@@ -454,7 +483,7 @@ def exchange_rate():
                     "simpleText": {
                         "text": f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                     }
-                }
+                },
             ]
         },
     }
