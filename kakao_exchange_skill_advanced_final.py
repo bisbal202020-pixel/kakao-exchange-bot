@@ -84,7 +84,7 @@ def build_exchange_card(rates_cache):
 
     return {
         "header": {
-            "title": f"이 시각 환율 ({rates_cache['updated_at']} 기준)"
+            "title": f"고시 환율 ({rates_cache['updated_at']} 기준)"
         },
         "items": items,
         "buttons": [{
