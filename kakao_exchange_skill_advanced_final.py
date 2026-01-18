@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
-import requests
 import time
 
 app = Flask(__name__)
 
-CACHE_TTL = 300  # 5분
+# =========================
+# 캐시 설정 (5분)
+# =========================
+CACHE_TTL = 300
 _cache = {"ts": 0, "data": None}
 
 
@@ -20,7 +22,7 @@ def pct(v):
 
 
 # =========================
-# 환율 데이터 (MK 기준)
+# 환율 데이터
 # =========================
 def get_exchange_rates():
     return [
@@ -50,11 +52,11 @@ def get_market_indexes():
 # =========================
 def get_commodities():
     return [
-        {"title": "금 (Gold, USD/oz)", "price": 2035.40, "chg": 12.30, "pct": 0.61},
-        {"title": "은 (Silver, USD/oz)", "price": 23.45, "chg": -0.12, "pct": -0.51},
+        {"title": "금 (USD/oz)", "price": 2035.40, "chg": 12.30, "pct": 0.61},
+        {"title": "은 (USD/oz)", "price": 23.45, "chg": -0.12, "pct": -0.51},
         {"title": "크루드오일 (WTI, USD/bbl)", "price": 78.34, "chg": 1.02, "pct": 1.32},
         {"title": "천연가스 (USD/MMBtu)", "price": 2.41, "chg": -0.08, "pct": -3.21},
-        {"title": "구리 (Copper, USD/lb)", "price": 3.84, "chg": 0.04, "pct": 1.05},
+        {"title": "구리 (USD/lb)", "price": 3.84, "chg": 0.04, "pct": 1.05},
     ]
 
 
@@ -87,7 +89,7 @@ def make_card(title, items, button=None):
 
 
 # =========================
-# 카카오 엔드포인트
+# 카카오 스킬 엔드포인트
 # =========================
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
@@ -120,7 +122,11 @@ def exchange_rate():
                 {
                     "carousel": {
                         "type": "basicCard",
-                        "items": [exchange_card, market_card, commodity_card],
+                        "items": [
+                            exchange_card,
+                            market_card,
+                            commodity_card,
+                        ],
                     }
                 }
             ]
@@ -131,6 +137,9 @@ def exchange_rate():
     return jsonify(response)
 
 
+# =========================
+# 헬스체크
+# =========================
 @app.route("/health", methods=["GET"])
 def health():
     return "ok", 200
