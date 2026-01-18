@@ -1,90 +1,127 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+import requests
+import time
 
 app = Flask(__name__)
-CORS(app)
 
 # =====================
-# Helper
+# 캐시 설정
 # =====================
+CACHE_TTL = 300  # 5분
+cache = {
+    "rates": {"data": None, "ts": 0},
+    "indices": {"data": None, "ts": 0}
+}
 
-def arrow(diff):
-    return "🔺" if diff > 0 else "🔻"
+# =====================
+# 유틸
+# =====================
+def arrow(val):
+    return "▲" if val >= 0 else "▼"
 
-def basic_card(title, description):
+def sign(val):
+    return f"+{val}" if val > 0 else f"{val}"
+
+# =====================
+# 환율 데이터 (예: MK 기준 / 크롤링 or API 연동)
+# =====================
+def get_exchange_rates():
+    now = time.time()
+    if cache["rates"]["data"] and now - cache["rates"]["ts"] < CACHE_TTL:
+        return cache["rates"]["data"]
+
+    # ⚠️ 실제 운영 시 여기 크롤링/API 연동
+    data = [
+        {"code": "USD", "name": "미국 달러", "value": 1475.50, "chg": 5.20, "pct": 0.35, "flag": "🇺🇸"},
+        {"code": "JPY100", "name": "일본 엔", "value": 933.54, "chg": 6.58, "pct": 0.71, "flag": "🇯🇵"},
+        {"code": "EUR", "name": "유로", "value": 1711.80, "chg": 4.93, "pct": 0.29, "flag": "🇪🇺"},
+        {"code": "CNY", "name": "중국 위안", "value": 211.78, "chg": 0.63, "pct": 0.30, "flag": "🇨🇳"},
+        {"code": "GBP", "name": "영국 파운드", "value": 1974.66, "chg": 7.40, "pct": 0.38, "flag": "🇬🇧"},
+    ]
+
+    cache["rates"] = {"data": data, "ts": now}
+    return data
+
+# =====================
+# 지수 데이터
+# =====================
+def get_indices():
+    now = time.time()
+    if cache["indices"]["data"] and now - cache["indices"]["ts"] < CACHE_TTL:
+        return cache["indices"]["data"]
+
+    data = [
+        {"name": "코스피", "value": 4840.74, "chg": 43.19, "pct": 0.90},
+        {"name": "코스닥", "value": 954.59, "chg": 3.43, "pct": 0.36},
+        {"name": "나스닥", "value": 23515.38, "chg": -14.63, "pct": -0.06},
+        {"name": "다우존스", "value": 49359.33, "chg": -83.11, "pct": -0.17},
+        {"name": "S&P 500", "value": 6940.01, "chg": -4.46, "pct": -0.06},
+    ]
+
+    cache["indices"] = {"data": data, "ts": now}
+    return data
+
+# =====================
+# 카드 포맷
+# =====================
+def build_exchange_card(rates):
+    items = []
+    for r in rates:
+        items.append({
+            "title": f"{r['flag']} {r['code']} ({r['name']})",
+            "description": f"{r['value']:,.2f} {arrow(r['chg'])}{abs(r['chg'])} ({sign(r['pct'])}%)"
+        })
+
     return {
-        "basicCard": {
-            "title": title,
-            "description": description
-        }
+        "header": {"title": "이 시각 환율 (매일경제)"},
+        "items": items,
+        "buttons": [{
+            "label": "매일경제 마켓",
+            "action": "webLink",
+            "webLinkUrl": "https://stock.mk.co.kr/"
+        }]
     }
 
-def carousel(cards):
+def build_index_card(indices):
+    items = []
+    for i in indices:
+        items.append({
+            "title": i["name"],
+            "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
+        })
+
     return {
+        "header": {"title": "주요 증시"},
+        "items": items
+    }
+
+# =====================
+# 카카오 스킬 엔드포인트
+# =====================
+@app.route("/exchange_rate", methods=["POST"])
+def exchange_rate():
+    rates = get_exchange_rates()
+    indices = get_indices()
+
+    response = {
         "version": "2.0",
         "template": {
             "outputs": [{
                 "carousel": {
-                    "type": "basicCard",
-                    "items": cards
+                    "type": "listCard",
+                    "items": [
+                        build_exchange_card(rates),
+                        build_index_card(indices)
+                    ]
                 }
             }]
         }
     }
+    return jsonify(response)
 
-# =====================
-# Route
-# =====================
-
-@app.route("/exchange_rate", methods=["POST"])
-def exchange_rate():
-    # 실데이터는 기존 로직 그대로 써도 됨
-    fx = [
-        f"🇺🇸 USD 1,475.5 {arrow(1)} 5.2",
-        f"🇯🇵 JPY 933.5 {arrow(1)} 6.5",
-        f"🇪🇺 EUR 1,711.8 {arrow(1)} 4.9",
-        f"🇨🇳 CNY 211.7 {arrow(1)} 0.6",
-        f"🇬🇧 GBP 1,974.6 {arrow(1)} 7.4",
-    ]
-
-    indices = [
-        f"🇰🇷 코스피 4,840.7 {arrow(1)} 43.1",
-        f"🇰🇷 코스닥 954.6 {arrow(1)} 3.4",
-        f"🇺🇸 나스닥 23,515 {arrow(-1)} 14.6",
-        f"🇺🇸 다우 49,359 {arrow(-1)} 83.1",
-        f"🇺🇸 S&P500 6,940 {arrow(-1)} 4.4",
-    ]
-
-    commodities = [
-        f"🥇 금 2,035 {arrow(1)} 12.3",
-        f"🥈 은 23.4 {arrow(-1)} 0.1",
-        f"🛢 WTI 78.3 {arrow(1)} 1.0",
-        f"🔥 가스 2.4 {arrow(-1)} 0.1",
-        f"🔩 구리 3.8 {arrow(1)} 0.0",
-    ]
-
-    crypto = [
-        f"₿ BTC 62,500 {arrow(1)}",
-        f"Ξ ETH 3,420 {arrow(1)}",
-        f"✕ XRP 0.62 {arrow(1)}",
-        f"◎ SOL 138 {arrow(1)}",
-        f"Ð DOGE 0.082 {arrow(1)}",
-    ]
-
-    cards = [
-        basic_card("1. 주요 환율", "\n".join(fx)),
-        basic_card("2. 주요 증시", "\n".join(indices)),
-        basic_card("3. 주요 원자재", "\n".join(commodities)),
-        basic_card("4. 주요 암호화폐", "\n".join(crypto)),
-    ]
-
-    return jsonify(carousel(cards))
-
-
-@app.route("/health")
+@app.route("/health", methods=["GET"])
 def health():
-    return "OK", 200
-
+    return "ok", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=8000)
