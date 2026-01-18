@@ -1,122 +1,119 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import requests
 import time
 
 app = Flask(__name__)
 
-# =========================
-# 공통 유틸
-# =========================
-def arrow(value):
+CACHE = {}
+CACHE_TTL = 300  # 5분
+
+# -------------------------
+# 공통 캐시 함수
+# -------------------------
+def get_cached(key, fetcher):
+    now = time.time()
+    if key in CACHE and now - CACHE[key]["ts"] < CACHE_TTL:
+        return CACHE[key]["data"]
+    data = fetcher()
+    CACHE[key] = {"data": data, "ts": now}
+    return data
+
+# -------------------------
+# 환율 (예시: 기존 로직 유지)
+# -------------------------
+def fetch_fx():
+    return [
+        "USD 1475.5 ▲5.2",
+        "JPY 933.5 ▲6.6",
+        "EUR 1711.8 ▲4.9",
+        "CNY 211.8 ▲0.6",
+        "GBP 1974.7 ▲7.4",
+    ]
+
+# -------------------------
+# 증시
+# -------------------------
+def fetch_index():
+    return [
+        "코스피 4840.7 ▲43.1",
+        "코스닥 954.6 ▲3.4",
+        "나스닥 23515 ▼14.6",
+        "다우 49359 ▼83.1",
+        "S&P500 6940 ▼4.4",
+    ]
+
+# -------------------------
+# 원자재
+# -------------------------
+def fetch_commodities():
+    return [
+        "금 2035 ▲12.3",
+        "은 23.45 ▼0.12",
+        "WTI 78.3 ▲1.0",
+        "가스 2.41 ▼0.08",
+        "구리 3.84 ▲0.04",
+    ]
+
+# -------------------------
+# 암호화폐 (빗썸 기준)
+# -------------------------
+def fetch_crypto():
     try:
-        v = float(value)
-        return "▲" if v >= 0 else "▼"
+        r = requests.get("https://api.bithumb.com/public/ticker/ALL_KRW", timeout=3).json()
+        data = r["data"]
+        return [
+            f"BTC {int(float(data['BTC']['closing_price']))}",
+            f"ETH {int(float(data['ETH']['closing_price']))}",
+            f"XRP {float(data['XRP']['closing_price']):.1f}",
+            f"ADA {float(data['ADA']['closing_price']):.1f}",
+            f"SOL {float(data['SOL']['closing_price']):.1f}",
+        ]
     except:
-        return ""
+        return [
+            "BTC -",
+            "ETH -",
+            "XRP -",
+            "ADA -",
+            "SOL -",
+        ]
 
-def fmt(num, d=2):
-    try:
-        return f"{float(num):,.{d}f}"
-    except:
-        return "-"
+# -------------------------
+# 카카오 응답
+# -------------------------
+@app.route("/exchange", methods=["POST"])
+def exchange():
+    fx = get_cached("fx", fetch_fx)
+    idx = get_cached("idx", fetch_index)
+    cmd = get_cached("cmd", fetch_commodities)
+    cry = get_cached("cry", fetch_crypto)
 
-# =========================
-# 1. 주요 환율 (예시 API 구조)
-# =========================
-def get_fx():
-    # 실제 사용 중인 환율 API 로직 유지 전제
-    return [
-        ("USD", 1475.50, 5.20),
-        ("JPY100", 933.54, 6.58),
-        ("EUR", 1711.80, 4.93),
-        ("CNY", 211.78, 0.63),
-        ("GBP", 1974.66, 7.40),
-    ]
+    def card(title, lines):
+        return {
+            "basicCard": {
+                "title": title,
+                "description": "\n".join(lines)
+            }
+        }
 
-# =========================
-# 2. 주요 증시
-# =========================
-def get_indices():
-    return [
-        ("코스피", 4840.74, 43.19),
-        ("코스닥", 954.59, 3.43),
-        ("나스닥", 23515.38, -14.63),
-        ("다우", 49359.33, -83.11),
-        ("S&P500", 6940.01, -4.46),
-    ]
-
-# =========================
-# 3. 주요 원자재
-# =========================
-def get_commodities():
-    return [
-        ("금", 2035.40, 12.30),
-        ("은", 23.45, -0.12),
-        ("WTI", 78.34, 1.02),
-        ("가스", 2.41, -0.08),
-        ("구리", 3.84, 0.04),
-    ]
-
-# =========================
-# 4. 주요 암호화폐 (빗썸 기준 예시)
-# =========================
-def get_crypto():
-    return [
-        ("BTC", 72450, 1120),
-        ("ETH", 3920, 65),
-        ("XRP", 615, -12),
-        ("SOL", 158, 4),
-        ("DOGE", 108, -3),
-    ]
-
-# =========================
-# basicCard 생성
-# =========================
-def make_card(title, items):
-    desc = "\n".join(
-        f"{n} {fmt(p)} {arrow(c)}{fmt(abs(c))}"
-        for n, p, c in items
-    )
-
-    return {
-        "basicCard": {
-            "title": title,
-            "description": desc
+    response = {
+        "version": "2.0",
+        "template": {
+            "outputs": [{
+                "carousel": {
+                    "type": "basicCard",
+                    "items": [
+                        card("주요 환율", fx),
+                        card("주요 증시", idx),
+                        card("주요 원자재", cmd),
+                        card("주요 암호화폐", cry),
+                    ]
+                }
+            }]
         }
     }
 
-# =========================
-# 카카오 스킬 엔드포인트
-# =========================
-@app.route("/exchange_rate", methods=["POST"])
-def exchange_rate():
-    cards = [
-        make_card("주요 환율", get_fx()),
-        make_card("주요 증시", get_indices()),
-        make_card("주요 원자재", get_commodities()),
-        make_card("주요 암호화폐", get_crypto()),
-    ]
+    return jsonify(response)
 
-    return jsonify({
-        "version": "2.0",
-        "template": {
-            "outputs": [
-                {
-                    "carousel": {
-                        "type": "basicCard",
-                        "items": cards
-                    }
-                }
-            ]
-        }
-    })
-
-# =========================
-# 헬스체크
-# =========================
-@app.route("/health", methods=["GET"])
-def health():
-    return "ok"
-
+# -------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
