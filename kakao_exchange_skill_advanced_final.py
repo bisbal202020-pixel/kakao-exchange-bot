@@ -96,8 +96,36 @@ def get_fallback_rates():
 
 def format_currency_data(rates):
     formatted = []
+
     for rate in rates:
         code = (rate.get("currency") or "").split()[0]
+        name = rate.get("name", code)
+        flag = rate.get("flag", "")
+
+        # change 값 처리
+        raw_change = rate.get("change", "0").replace("+", "").replace("▲", "").replace("▼", "").strip()
+
+        try:
+            change_value = float(raw_change)
+        except:
+            change_value = 0.0
+
+        if change_value > 0:
+            change_text = f"▲ {change_value:.2f}"
+        elif change_value < 0:
+            change_text = f"▼ {abs(change_value):.2f}"
+        else:
+            change_text = "0.00"
+
+        formatted.append({
+            "currency": f"{code} ({name})",
+            "rate": rate.get("rate", ""),
+            "change": change_text,
+            "flag": flag
+        })
+
+    return formatted
+
 
         change_raw = rate.get("change", "0")
 
