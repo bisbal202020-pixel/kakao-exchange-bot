@@ -100,31 +100,32 @@ def format_currency_data(rates):
     for rate in rates:
         code = (rate.get("currency") or "").split()[0]
         name = rate.get("name", code)
-        flag = rate.get("flag", "")
 
-        # change 값 처리
-        raw_change = rate.get("change", "0").replace("+", "").replace("▲", "").replace("▼", "").strip()
+        raw_change = rate.get("change", "0")
 
         try:
-            change_value = float(raw_change)
+            numeric = float(
+                raw_change.replace("+", "").replace("-", "")
+            )
         except:
-            change_value = 0.0
+            numeric = 0.0
 
-        if change_value > 0:
-            change_text = f"▲ {change_value:.2f}"
-        elif change_value < 0:
-            change_text = f"▼ {abs(change_value):.2f}"
+        if raw_change.startswith("+"):
+            arrow = "▲"
+        elif raw_change.startswith("-"):
+            arrow = "▼"
         else:
-            change_text = "0.00"
+            arrow = ""
 
         formatted.append({
             "currency": f"{code} ({name})",
             "rate": rate.get("rate", ""),
-            "change": change_text,
-            "flag": flag
+            "change": f"{arrow} {numeric}",
+            "flag": rate.get("flag", "")
         })
 
     return formatted
+
 
 
         change_raw = rate.get("change", "0")
