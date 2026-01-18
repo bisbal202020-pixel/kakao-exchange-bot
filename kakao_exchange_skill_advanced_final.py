@@ -1,99 +1,112 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
-import os
+from datetime import datetime, timedelta
+import threading
 
 app = Flask(__name__)
-CORS(app)
 
-# ===== 캐시 설정 =====
-EXCHANGE_CACHE = {"data": None, "timestamp": None}
+# =========================
+# 캐시 설정
+# =========================
 CACHE_TTL = 600  # 10분
+_cached_data = None
+_cached_time = None
+_cache_lock = threading.Lock()
 
-TARGET_ROWS = {
-    "미국":  {"code": "USD",   "flag": "🇺🇸", "name": "미국 달러"},
-    "일본":  {"code": "JPY100","flag": "🇯🇵", "name": "일본 엔"},
-    "유로":  {"code": "EUR",   "flag": "🇪🇺", "name": "유로"},
-    "중국":  {"code": "CNY",   "flag": "🇨🇳", "name": "중국 위안"},
-    "영국":  {"code": "GBP",   "flag": "🇬🇧", "name": "영국 파운드"},
-}
 
-def _clean(text):
-    return (text or "").strip()
+# =========================
+# 헬스 체크
+# =========================
+@app.route("/health", methods=["GET", "HEAD"])
+def health():
+    return "ok", 200
 
-def _clean_change(text):
-    t = _clean(text)
-    t = t.replace("▲", "+").replace("△", "+").replace("▼", "-").replace("▽", "-")
-    t = t.replace(" ", "")
-    return t
 
-def get_exchange_rates_advanced():
-    now = datetime.now()
+# =========================
+# 환율 스크래핑
+# =========================
+def fetch_exchange_rates():
+    url = "https://stock.mk.co.kr/"
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
-    if (
-        EXCHANGE_CACHE["data"]
-        and EXCHANGE_CACHE["timestamp"]
-        and (now - EXCHANGE_CACHE["timestamp"]).seconds < CACHE_TTL
-    ):
-        return EXCHANGE_CACHE["data"]
+    res = requests.get(url, headers=headers, timeout=5)
+    soup = BeautifulSoup(res.text, "html.parser")
 
-    try:
-        r = requests.get(
-            "https://stock.mk.co.kr/",
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10
-        )
-        r.raise_for_status()
+    table = soup.select_one("table")
+    rows = table.select("tr")[1:]
 
-        soup = BeautifulSoup(r.text, "html.parser")
-        found = {}
+    rates = []
 
-        for tr in soup.find_all("tr"):
-            tds = tr.find_all("td")
-            if len(tds) < 3:
-                continue
+    for row in rows:
+        cols = row.select("td")
+        if len(cols) < 4:
+            continue
 
-            col0 = tds[0].get_text(" ", strip=True)
-            rate = _clean(tds[1].get_text())
-            change = _clean_change(tds[2].get_text())
+        name = cols[0].get_text(strip=True)
+        rate = cols[1].get_text(strip=True)
+        change = cols[2].get_text(strip=True)
+        percent = cols[3].get_text(strip=True)
 
-            for key, meta in TARGET_ROWS.items():
-                if key in col0 and key not in found and rate:
-                    found[key] = {
-                        "currency": meta["code"],
-                        "rate": rate,
-                        "change": change or "0",
-                        "flag": meta["flag"],
-                        "name": meta["name"],
-                    }
+        if "미국" in name:
+            code = "USD"
+            flag = "🇺🇸"
+            cname = "미국 달러"
+        elif "일본" in name:
+            code = "JPY100"
+            flag = "🇯🇵"
+            cname = "일본 엔"
+        elif "유로" in name:
+            code = "EUR"
+            flag = "🇪🇺"
+            cname = "유로"
+        elif "중국" in name:
+            code = "CNY"
+            flag = "🇨🇳"
+            cname = "중국 위안"
+        elif "영국" in name:
+            code = "GBP"
+            flag = "🇬🇧"
+            cname = "영국 파운드"
+        else:
+            continue
 
-        rates = [found[k] for k in ["미국", "일본", "유로", "중국", "영국"] if k in found]
-        if len(rates) < 5:
-            rates = get_fallback_rates()
+        rates.append({
+            "currency": code,
+            "name": cname,
+            "rate": rate,
+            "change": change,
+            "percent": percent,
+            "flag": flag
+        })
 
-        EXCHANGE_CACHE["data"] = rates
-        EXCHANGE_CACHE["timestamp"] = now
-        return rates
+    return rates
 
-    except Exception:
-        return get_fallback_rates()
 
+# =========================
+# fallback 데이터
+# =========================
 def get_fallback_rates():
     return [
-        {"currency": "USD", "rate": "1,475.50", "change": "+5.20", "flag": "🇺🇸", "name": "미국 달러"},
-        {"currency": "JPY100", "rate": "933.54", "change": "+6.58", "flag": "🇯🇵", "name": "일본 엔"},
-        {"currency": "EUR", "rate": "1,711.80", "change": "+4.93", "flag": "🇪🇺", "name": "유로"},
-        {"currency": "CNY", "rate": "211.78", "change": "+0.63", "flag": "🇨🇳", "name": "중국 위안"},
-        {"currency": "GBP", "rate": "1,974.66", "change": "+7.40", "flag": "🇬🇧", "name": "영국 파운드"},
+        {"currency": "USD", "name": "미국 달러", "rate": "1,475.50", "change": "+5.20", "percent": "+0.35%", "flag": "🇺🇸"},
+        {"currency": "JPY100", "name": "일본 엔", "rate": "933.54", "change": "+6.58", "percent": "+0.71%", "flag": "🇯🇵"},
+        {"currency": "EUR", "name": "유로", "rate": "1,711.80", "change": "+4.93", "percent": "+0.29%", "flag": "🇪🇺"},
+        {"currency": "CNY", "name": "중국 위안", "rate": "211.78", "change": "+0.63", "percent": "+0.30%", "flag": "🇨🇳"},
+        {"currency": "GBP", "name": "영국 파운드", "rate": "1,974.66", "change": "+7.40", "percent": "+0.38%", "flag": "🇬🇧"},
     ]
 
+
+# =========================
+# 포맷 정리 (▲ ▼ + 퍼센트)
+# =========================
 def format_currency_data(rates):
     formatted = []
 
     for rate in rates:
         raw = rate.get("change", "0")
+        percent = rate.get("percent", "")
 
         try:
             value = abs(float(raw.replace("+", "").replace("-", "")))
@@ -102,23 +115,58 @@ def format_currency_data(rates):
 
         arrow = "▲" if raw.startswith("+") else "▼" if raw.startswith("-") else "━"
 
+        change_text = f"{arrow}{value}"
+        if percent:
+            change_text += f" ({percent})"
+
         formatted.append({
-            "currency": f"{rate['currency']} ({rate['name']})",
+            "currency": f"{rate['flag']} {rate['currency']} ({rate['name']})",
             "rate": rate["rate"],
-            "change": f"{arrow} {value}",
-            "flag": rate["flag"]
+            "change": change_text
         })
 
     return formatted
 
+
+# =========================
+# 캐시 포함 환율 조회
+# =========================
+def get_exchange_data():
+    global _cached_data, _cached_time
+
+    with _cache_lock:
+        if _cached_data and _cached_time:
+            if datetime.now() - _cached_time < timedelta(seconds=CACHE_TTL):
+                return _cached_data
+
+        try:
+            raw = fetch_exchange_rates()
+            if not raw:
+                raise Exception("empty")
+        except:
+            raw = get_fallback_rates()
+
+        formatted = format_currency_data(raw)
+
+        _cached_data = formatted
+        _cached_time = datetime.now()
+
+        return formatted
+
+
+# =========================
+# 카카오 스킬 엔드포인트
+# =========================
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
-    rates = format_currency_data(get_exchange_rates_advanced())
+    rates = get_exchange_data()
 
-    items = [{
-        "title": f"{r['flag']} {r['currency']}",
-        "description": f"{r['rate']}  {r['change']}"
-    } for r in rates]
+    items = []
+    for r in rates:
+        items.append({
+            "title": r["currency"],
+            "description": f"{r['rate']} {r['change']}"
+        })
 
     return jsonify({
         "version": "2.0",
@@ -126,31 +174,26 @@ def exchange_rate():
             "outputs": [
                 {
                     "listCard": {
-                        "header": {"title": "이 시각 환율 (매일경제)"},
+                        "header": {
+                            "title": "이 시각 환율 (매일경제)"
+                        },
                         "items": items,
-                        "buttons": [{
-                            "action": "webLink",
-                            "label": "매일경제 마켓",
-                            "webLinkUrl": "https://stock.mk.co.kr/"
-                        }]
-                    }
-                },
-                {
-                    "simpleText": {
-                        "text": f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        "buttons": [
+                            {
+                                "label": "매일경제 마켓",
+                                "action": "webLink",
+                                "webLinkUrl": "https://stock.mk.co.kr/"
+                            }
+                        ]
                     }
                 }
             ]
         }
     })
 
-@app.route("/health", methods=["GET"])
-def health():
-    return "ok", 200
 
+# =========================
+# 실행
+# =========================
 if __name__ == "__main__":
-    app.run(
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
-        debug=False
-    )
+    app.run(host="0.0.0.0", port=10000)
