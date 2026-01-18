@@ -77,7 +77,7 @@ def format_currency_data(rates):
         "JPY100": {"flag": "🇯🇵", "name": "일본 엔"},
         "EUR": {"flag": "🇪🇺", "name": "유로"},
         "CNY": {"flag": "🇨🇳", "name": "중국 위안"},
-        "AUD": {"flag": "🇦🇺", "name": "호주 달러"}
+        "GBP": {"flag": "🇬🇧", "name": "영국 파운드"}
     }
 
     formatted = []
