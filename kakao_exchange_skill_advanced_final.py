@@ -73,7 +73,7 @@ def build_exchange_card(rates):
         })
 
     return {
-        "header": {"title": "이 시각 환율 (매일경제)"},
+        "header": {"title": "이 시각 환율"},
         "items": items,
         "buttons": [{
             "label": "매일경제 마켓",
