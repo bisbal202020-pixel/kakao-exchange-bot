@@ -2,17 +2,15 @@ from flask import Flask, jsonify
 import requests
 import time
 from datetime import datetime, time as dtime, date
-from bs4 import BeautifulSoup
 from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
 
 # =====================
-# 캐시 (환율 / 해외지수만)
+# 캐시 (해외지수용)
 # =====================
 CACHE_TTL = 300
 cache = {
-    "rates": {"data": None, "ts": 0, "updated_at": None},
     "us_indices": {"data": None, "ts": 0, "updated_at": None}
 }
 
@@ -32,7 +30,7 @@ def now_kst_dt():
     return datetime.now(ZoneInfo("Asia/Seoul"))
 
 # =====================
-# 🇰🇷 공휴일
+# 🇰🇷 공휴일 (연 1회 관리)
 # =====================
 KR_HOLIDAYS = {
     date(2026, 1, 1),
@@ -66,34 +64,35 @@ def get_kr_market_status():
     return "장 마감"
 
 # =====================
-# 🇰🇷 네이버금융 실시간 크롤링
+# 🇰🇷 Yahoo Finance 실시간 지수
 # =====================
-def crawl_naver_index(code):
-    url = f"https://finance.naver.com/sise/sise_index.nhn?code={code}"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    html = requests.get(url, headers=headers).text
-    soup = BeautifulSoup(html, "html.parser")
+def fetch_yahoo_index(symbol):
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {
+        "interval": "1m",
+        "range": "1d"
+    }
 
-    value = float(soup.select_one(".now_value").text.replace(",", ""))
-    diff = soup.select_one(".change_value").text.replace(",", "")
-    pct = soup.select_one(".change_rate").text.replace("%", "")
+    r = requests.get(url, params=params, timeout=2)
+    j = r.json()
 
-    chg = float(diff.replace("▲", "").replace("▼", ""))
-    if "▼" in diff:
-        chg = -chg
+    meta = j["chart"]["result"][0]["meta"]
+    price = meta["regularMarketPrice"]
+    prev = meta["previousClose"]
 
-    pct = float(pct)
+    chg = price - prev
+    pct = (chg / prev) * 100
 
-    return value, chg, pct
+    return round(price, 2), round(chg, 2), round(pct, 2)
 
 # =====================
-# 🇰🇷 국내 지수 (실시간)
+# 🇰🇷 국내 지수 (호출 시마다 실시간)
 # =====================
 def get_kr_indices():
     status = get_kr_market_status()
 
-    kospi_v, kospi_c, kospi_p = crawl_naver_index("KOSPI")
-    kosdaq_v, kosdaq_c, kosdaq_p = crawl_naver_index("KOSDAQ")
+    kospi_v, kospi_c, kospi_p = fetch_yahoo_index("^KS11")
+    kosdaq_v, kosdaq_c, kosdaq_p = fetch_yahoo_index("^KQ11")
 
     return {
         "status": status,
