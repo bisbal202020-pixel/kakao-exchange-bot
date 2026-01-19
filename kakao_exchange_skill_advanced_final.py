@@ -7,10 +7,10 @@ app = Flask(__name__)
 # =====================
 # 캐시 설정
 # =====================
-CACHE_TTL = 300  # 5분
+US_INDEX_CACHE_TTL = 300  # 해외지수 5분 캐시
 cache = {
     "rates": {"data": None, "ts": 0, "updated_at": None},
-    "indices": {"data": None, "ts": 0, "updated_at": None}
+    "us_indices": {"data": None, "ts": 0, "updated_at": None}
 }
 
 # =====================
@@ -26,11 +26,11 @@ def now_kst():
     return datetime.now().strftime("%Y.%m.%d %H:%M")
 
 # =====================
-# 환율 데이터
+# 환율 (기존 유지)
 # =====================
 def get_exchange_rates():
     now = time.time()
-    if cache["rates"]["data"] and now - cache["rates"]["ts"] < CACHE_TTL:
+    if cache["rates"]["data"] and now - cache["rates"]["ts"] < 300:
         return cache["rates"]
 
     data = [
@@ -49,31 +49,64 @@ def get_exchange_rates():
     return cache["rates"]
 
 # =====================
-# 지수 데이터
+# 🇰🇷 국내 지수 (실시간, 캐시 ❌)
 # =====================
-def get_indices():
+def get_kr_indices():
+    # 👉 실제 운영 시 여기만 네이버/증권 API로 교체
+    return {
+        "data": [
+            {"name": "코스피", "value": 4840.74, "chg": 43.19, "pct": 0.90},
+            {"name": "코스닥", "value": 954.59, "chg": 3.43, "pct": 0.36},
+        ],
+        "updated_at": now_kst()
+    }
+
+# =====================
+# 🇺🇸 해외 지수 (전일 종가, 캐시 ⭕)
+# =====================
+def get_us_indices():
     now = time.time()
-    if cache["indices"]["data"] and now - cache["indices"]["ts"] < CACHE_TTL:
-        return cache["indices"]
+    if cache["us_indices"]["data"] and now - cache["us_indices"]["ts"] < US_INDEX_CACHE_TTL:
+        return cache["us_indices"]
 
     data = [
-        {"name": "코스피", "value": 4840.74, "chg": 43.19, "pct": 0.90},
-        {"name": "코스닥", "value": 954.59, "chg": 3.43, "pct": 0.36},
         {"name": "나스닥", "value": 23515.38, "chg": -14.63, "pct": -0.06},
         {"name": "다우존스", "value": 49359.33, "chg": -83.11, "pct": -0.17},
         {"name": "S&P 500", "value": 6940.01, "chg": -4.46, "pct": -0.06},
     ]
 
-    cache["indices"] = {
+    cache["us_indices"] = {
         "data": data,
         "ts": now,
         "updated_at": now_kst()
     }
-    return cache["indices"]
+    return cache["us_indices"]
 
 # =====================
 # 카드 포맷
 # =====================
+def build_index_card(kr, us):
+    items = []
+
+    for i in kr["data"]:
+        items.append({
+            "title": f"{i['name']} (실시간)",
+            "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
+        })
+
+    for i in us["data"]:
+        items.append({
+            "title": f"{i['name']} (전일 종가)",
+            "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
+        })
+
+    return {
+        "header": {
+            "title": f"주요 증시 (국내장 실시간 | {kr['updated_at']} 기준)"
+        },
+        "items": items
+    }
+
 def build_exchange_card(rates_cache):
     items = []
     for r in rates_cache["data"]:
@@ -94,28 +127,14 @@ def build_exchange_card(rates_cache):
         }]
     }
 
-def build_index_card(indices_cache):
-    items = []
-    for i in indices_cache["data"]:
-        items.append({
-            "title": i["name"],
-            "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
-        })
-
-    return {
-        "header": {
-            "title": f"주요 증시 ({indices_cache['updated_at']} 기준)"
-        },
-        "items": items
-    }
-
 # =====================
-# 카카오 스킬 엔드포인트
+# 카카오 스킬
 # =====================
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
-    rates_cache = get_exchange_rates()
-    indices_cache = get_indices()
+    rates = get_exchange_rates()
+    kr = get_kr_indices()
+    us = get_us_indices()
 
     response = {
         "version": "2.0",
@@ -124,8 +143,8 @@ def exchange_rate():
                 "carousel": {
                     "type": "listCard",
                     "items": [
-                        build_exchange_card(rates_cache),
-                        build_index_card(indices_cache)
+                        build_exchange_card(rates),
+                        build_index_card(kr, us)
                     ]
                 }
             }]
