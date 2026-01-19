@@ -1,11 +1,14 @@
 from flask import Flask, jsonify
+import requests
 import time
 from datetime import datetime, time as dtime, date
+from bs4 import BeautifulSoup
+from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
 
 # =====================
-# 캐시 (해외지수/환율만)
+# 캐시 (환율 / 해외지수만)
 # =====================
 CACHE_TTL = 300
 cache = {
@@ -23,10 +26,13 @@ def sign(val):
     return f"+{val}" if val > 0 else f"{val}"
 
 def now_kst():
-    return datetime.now().strftime("%Y.%m.%d %H:%M")
+    return datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
+
+def now_kst_dt():
+    return datetime.now(ZoneInfo("Asia/Seoul"))
 
 # =====================
-# 🇰🇷 한국 공휴일 (연 1회 관리)
+# 🇰🇷 공휴일
 # =====================
 KR_HOLIDAYS = {
     date(2026, 1, 1),
@@ -44,63 +50,62 @@ KR_HOLIDAYS = {
 }
 
 # =====================
-# 🇰🇷 장 상태 판별
+# 🇰🇷 장 상태 (KST 기준)
 # =====================
 def get_kr_market_status():
-    today = datetime.now().date()
-    now = datetime.now().time()
+    now = now_kst_dt()
+    today = now.date()
+    t = now.time()
 
-    if today.weekday() >= 5:
+    if today.weekday() >= 5 or today in KR_HOLIDAYS:
         return "휴장"
 
-    if today in KR_HOLIDAYS:
-        return "휴장"
-
-    if dtime(9, 0) <= now <= dtime(15, 30):
+    if dtime(9, 0) <= t <= dtime(15, 30):
         return "개장 중"
 
     return "장 마감"
 
 # =====================
-# 환율 (기존 유지)
+# 🇰🇷 네이버금융 실시간 크롤링
 # =====================
-def get_exchange_rates():
-    now = time.time()
-    if cache["rates"]["data"] and now - cache["rates"]["ts"] < CACHE_TTL:
-        return cache["rates"]
+def crawl_naver_index(code):
+    url = f"https://finance.naver.com/sise/sise_index.nhn?code={code}"
+    headers = {"User-Agent": "Mozilla/5.0"}
+    html = requests.get(url, headers=headers).text
+    soup = BeautifulSoup(html, "html.parser")
 
-    data = [
-        {"code": "USD", "name": "미국 달러", "value": 1475.50, "chg": 5.20, "pct": 0.35, "flag": "🇺🇸"},
-        {"code": "JPY", "name": "일본 엔", "value": 933.54, "chg": 6.58, "pct": 0.71, "flag": "🇯🇵"},
-        {"code": "EUR", "name": "유로", "value": 1711.80, "chg": 4.93, "pct": 0.29, "flag": "🇪🇺"},
-        {"code": "CNY", "name": "중국 위안", "value": 211.78, "chg": 0.63, "pct": 0.30, "flag": "🇨🇳"},
-        {"code": "GBP", "name": "영국 파운드", "value": 1974.66, "chg": 7.40, "pct": 0.38, "flag": "🇬🇧"},
-    ]
+    value = float(soup.select_one(".now_value").text.replace(",", ""))
+    diff = soup.select_one(".change_value").text.replace(",", "")
+    pct = soup.select_one(".change_rate").text.replace("%", "")
 
-    cache["rates"] = {
-        "data": data,
-        "ts": now,
-        "updated_at": now_kst()
-    }
-    return cache["rates"]
+    chg = float(diff.replace("▲", "").replace("▼", ""))
+    if "▼" in diff:
+        chg = -chg
+
+    pct = float(pct)
+
+    return value, chg, pct
 
 # =====================
-# 🇰🇷 국내 지수 (실시간, 캐시 ❌)
+# 🇰🇷 국내 지수 (실시간)
 # =====================
 def get_kr_indices():
     status = get_kr_market_status()
 
+    kospi_v, kospi_c, kospi_p = crawl_naver_index("KOSPI")
+    kosdaq_v, kosdaq_c, kosdaq_p = crawl_naver_index("KOSDAQ")
+
     return {
         "status": status,
         "data": [
-            {"name": "코스피", "value": 4840.74, "chg": 43.19, "pct": 0.90},
-            {"name": "코스닥", "value": 954.59, "chg": 3.43, "pct": 0.36},
+            {"name": "코스피", "value": kospi_v, "chg": kospi_c, "pct": kospi_p},
+            {"name": "코스닥", "value": kosdaq_v, "chg": kosdaq_c, "pct": kosdaq_p},
         ],
         "updated_at": now_kst()
     }
 
 # =====================
-# 🇺🇸 해외 지수 (전일 종가, 캐시 ⭕)
+# 🇺🇸 해외 지수 (전일 종가, 캐시)
 # =====================
 def get_us_indices():
     now = time.time()
@@ -145,27 +150,11 @@ def build_index_card(kr, us):
         "items": items
     }
 
-def build_exchange_card(rates):
-    items = []
-    for r in rates["data"]:
-        items.append({
-            "title": f"{r['flag']} {r['code']} ({r['name']})",
-            "description": f"{r['value']:,.2f} {arrow(r['chg'])}{abs(r['chg'])} ({sign(r['pct'])}%)"
-        })
-
-    return {
-        "header": {
-            "title": f"고시 환율 ({rates['updated_at']} 기준)"
-        },
-        "items": items
-    }
-
 # =====================
 # 카카오 스킬
 # =====================
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
-    rates = get_exchange_rates()
     kr = get_kr_indices()
     us = get_us_indices()
 
@@ -176,7 +165,6 @@ def exchange_rate():
                 "carousel": {
                     "type": "listCard",
                     "items": [
-                        build_exchange_card(rates),
                         build_index_card(kr, us)
                     ]
                 }
@@ -184,7 +172,7 @@ def exchange_rate():
         }
     })
 
-@app.route("/health", methods=["GET"])
+@app.route("/health")
 def health():
     return "ok", 200
 
