@@ -1,18 +1,16 @@
 from flask import Flask, jsonify
 import requests
 import time
-from datetime import datetime, time as dtime, date
+from datetime import datetime, time as dtime
 from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
 
 # =====================
-# 캐시 (해외지수용)
+# 캐시 (카카오 타임아웃 방지용)
 # =====================
-CACHE_TTL = 300
-cache = {
-    "us_indices": {"data": None, "ts": 0, "updated_at": None}
-}
+KR_CACHE_TTL = 30  # 30초
+kr_cache = {"data": None, "ts": 0}
 
 # =====================
 # 유틸
@@ -23,62 +21,37 @@ def arrow(val):
 def sign(val):
     return f"+{val}" if val > 0 else f"{val}"
 
-def now_kst():
-    return datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y.%m.%d %H:%M")
-
 def now_kst_dt():
     return datetime.now(ZoneInfo("Asia/Seoul"))
 
-# =====================
-# 🇰🇷 공휴일 (연 1회 관리)
-# =====================
-KR_HOLIDAYS = {
-    date(2026, 1, 1),
-    date(2026, 2, 16),
-    date(2026, 3, 1),
-    date(2026, 5, 5),
-    date(2026, 6, 6),
-    date(2026, 8, 15),
-    date(2026, 9, 28),
-    date(2026, 9, 29),
-    date(2026, 9, 30),
-    date(2026, 10, 3),
-    date(2026, 10, 9),
-    date(2026, 12, 25),
-}
+def now_kst():
+    return now_kst_dt().strftime("%Y.%m.%d %H:%M")
 
 # =====================
-# 🇰🇷 장 상태 (KST 기준)
+# 장 상태 (아주 단순)
 # =====================
 def get_kr_market_status():
-    now = now_kst_dt()
-    today = now.date()
-    t = now.time()
-
-    if today.weekday() >= 5 or today in KR_HOLIDAYS:
-        return "휴장"
-
-    if dtime(9, 0) <= t <= dtime(15, 30):
+    now = now_kst_dt().time()
+    if dtime(9, 0) <= now <= dtime(15, 30):
         return "개장 중"
-
     return "장 마감"
 
 # =====================
-# 🇰🇷 Yahoo Finance 실시간 지수
+# Yahoo Finance 지수
 # =====================
 def fetch_yahoo_index(symbol):
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    params = {
-        "interval": "1m",
-        "range": "1d"
+    params = {"interval": "1m", "range": "1d"}
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
     }
 
-    r = requests.get(url, params=params, timeout=2)
-    j = r.json()
+    r = requests.get(url, params=params, headers=headers, timeout=2)
+    j = r.json()["chart"]["result"][0]["meta"]
 
-    meta = j["chart"]["result"][0]["meta"]
-    price = meta["regularMarketPrice"]
-    prev = meta["previousClose"]
+    price = j["regularMarketPrice"]
+    prev = j["previousClose"]
 
     chg = price - prev
     pct = (chg / prev) * 100
@@ -86,15 +59,26 @@ def fetch_yahoo_index(symbol):
     return round(price, 2), round(chg, 2), round(pct, 2)
 
 # =====================
-# 🇰🇷 국내 지수 (호출 시마다 실시간)
+# 🇰🇷 국내 지수 (실시간 + 30초 캐시)
 # =====================
 def get_kr_indices():
+    now_ts = time.time()
+
+    if kr_cache["data"] and now_ts - kr_cache["ts"] < KR_CACHE_TTL:
+        return kr_cache["data"]
+
     status = get_kr_market_status()
 
-    kospi_v, kospi_c, kospi_p = fetch_yahoo_index("^KS11")
-    kosdaq_v, kosdaq_c, kosdaq_p = fetch_yahoo_index("^KQ11")
+    try:
+        kospi_v, kospi_c, kospi_p = fetch_yahoo_index("^KS11")
+        kosdaq_v, kosdaq_c, kosdaq_p = fetch_yahoo_index("^KQ11")
+    except Exception:
+        # 외부 API 잠깐 죽어도 무응답 방지
+        if kr_cache["data"]:
+            return kr_cache["data"]
+        raise
 
-    return {
+    data = {
         "status": status,
         "data": [
             {"name": "코스피", "value": kospi_v, "chg": kospi_c, "pct": kospi_p},
@@ -103,42 +87,18 @@ def get_kr_indices():
         "updated_at": now_kst()
     }
 
-# =====================
-# 🇺🇸 해외 지수 (전일 종가, 캐시)
-# =====================
-def get_us_indices():
-    now = time.time()
-    if cache["us_indices"]["data"] and now - cache["us_indices"]["ts"] < CACHE_TTL:
-        return cache["us_indices"]
-
-    data = [
-        {"name": "나스닥", "value": 23515.38, "chg": -14.63, "pct": -0.06},
-        {"name": "다우존스", "value": 49359.33, "chg": -83.11, "pct": -0.17},
-        {"name": "S&P 500", "value": 6940.01, "chg": -4.46, "pct": -0.06},
-    ]
-
-    cache["us_indices"] = {
-        "data": data,
-        "ts": now,
-        "updated_at": now_kst()
-    }
-    return cache["us_indices"]
+    kr_cache["data"] = data
+    kr_cache["ts"] = now_ts
+    return data
 
 # =====================
 # 카드 빌드
 # =====================
-def build_index_card(kr, us):
+def build_index_card(kr):
     items = []
-
     for i in kr["data"]:
         items.append({
             "title": f"{i['name']} ({kr['status']})",
-            "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
-        })
-
-    for i in us["data"]:
-        items.append({
-            "title": f"{i['name']} (전일 종가)",
             "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
         })
 
@@ -155,7 +115,6 @@ def build_index_card(kr, us):
 @app.route("/exchange_rate", methods=["POST"])
 def exchange_rate():
     kr = get_kr_indices()
-    us = get_us_indices()
 
     return jsonify({
         "version": "2.0",
@@ -164,7 +123,7 @@ def exchange_rate():
                 "carousel": {
                     "type": "listCard",
                     "items": [
-                        build_index_card(kr, us)
+                        build_index_card(kr)
                     ]
                 }
             }]
