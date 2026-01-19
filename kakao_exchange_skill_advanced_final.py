@@ -1,13 +1,13 @@
-from flask import Flask, request, jsonify
+from flask import Flask, jsonify
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime, date
 
 app = Flask(__name__)
 
 # =====================
-# 캐시 설정
+# 캐시 (해외지수/환율만)
 # =====================
-US_INDEX_CACHE_TTL = 300  # 해외지수 5분 캐시
+CACHE_TTL = 300
 cache = {
     "rates": {"data": None, "ts": 0, "updated_at": None},
     "us_indices": {"data": None, "ts": 0, "updated_at": None}
@@ -26,11 +26,47 @@ def now_kst():
     return datetime.now().strftime("%Y.%m.%d %H:%M")
 
 # =====================
+# 🇰🇷 한국 공휴일 (연 1회 관리)
+# =====================
+KR_HOLIDAYS = {
+    date(2026, 1, 1),
+    date(2026, 2, 16),
+    date(2026, 3, 1),
+    date(2026, 5, 5),
+    date(2026, 6, 6),
+    date(2026, 8, 15),
+    date(2026, 9, 28),
+    date(2026, 9, 29),
+    date(2026, 9, 30),
+    date(2026, 10, 3),
+    date(2026, 10, 9),
+    date(2026, 12, 25),
+}
+
+# =====================
+# 🇰🇷 장 상태 판별
+# =====================
+def get_kr_market_status():
+    today = datetime.now().date()
+    now = datetime.now().time()
+
+    if today.weekday() >= 5:
+        return "휴장"
+
+    if today in KR_HOLIDAYS:
+        return "휴장"
+
+    if dtime(9, 0) <= now <= dtime(15, 30):
+        return "개장 중"
+
+    return "장 마감"
+
+# =====================
 # 환율 (기존 유지)
 # =====================
 def get_exchange_rates():
     now = time.time()
-    if cache["rates"]["data"] and now - cache["rates"]["ts"] < 300:
+    if cache["rates"]["data"] and now - cache["rates"]["ts"] < CACHE_TTL:
         return cache["rates"]
 
     data = [
@@ -52,8 +88,10 @@ def get_exchange_rates():
 # 🇰🇷 국내 지수 (실시간, 캐시 ❌)
 # =====================
 def get_kr_indices():
-    # 👉 실제 운영 시 여기만 네이버/증권 API로 교체
+    status = get_kr_market_status()
+
     return {
+        "status": status,
         "data": [
             {"name": "코스피", "value": 4840.74, "chg": 43.19, "pct": 0.90},
             {"name": "코스닥", "value": 954.59, "chg": 3.43, "pct": 0.36},
@@ -66,7 +104,7 @@ def get_kr_indices():
 # =====================
 def get_us_indices():
     now = time.time()
-    if cache["us_indices"]["data"] and now - cache["us_indices"]["ts"] < US_INDEX_CACHE_TTL:
+    if cache["us_indices"]["data"] and now - cache["us_indices"]["ts"] < CACHE_TTL:
         return cache["us_indices"]
 
     data = [
@@ -83,14 +121,14 @@ def get_us_indices():
     return cache["us_indices"]
 
 # =====================
-# 카드 포맷
+# 카드 빌드
 # =====================
 def build_index_card(kr, us):
     items = []
 
     for i in kr["data"]:
         items.append({
-            "title": f"{i['name']} (실시간)",
+            "title": f"{i['name']} ({kr['status']})",
             "description": f"{i['value']:,.2f} {arrow(i['chg'])}{abs(i['chg'])} ({sign(i['pct'])}%)"
         })
 
@@ -102,14 +140,14 @@ def build_index_card(kr, us):
 
     return {
         "header": {
-            "title": f"주요 증시 (국내장 실시간 | {kr['updated_at']} 기준)"
+            "title": f"주요 증시 ({kr['updated_at']} 기준)"
         },
         "items": items
     }
 
-def build_exchange_card(rates_cache):
+def build_exchange_card(rates):
     items = []
-    for r in rates_cache["data"]:
+    for r in rates["data"]:
         items.append({
             "title": f"{r['flag']} {r['code']} ({r['name']})",
             "description": f"{r['value']:,.2f} {arrow(r['chg'])}{abs(r['chg'])} ({sign(r['pct'])}%)"
@@ -117,14 +155,9 @@ def build_exchange_card(rates_cache):
 
     return {
         "header": {
-            "title": f"고시 환율 ({rates_cache['updated_at']} 기준)"
+            "title": f"고시 환율 ({rates['updated_at']} 기준)"
         },
-        "items": items,
-        "buttons": [{
-            "label": "매일경제 마켓",
-            "action": "webLink",
-            "webLinkUrl": "https://stock.mk.co.kr/"
-        }]
+        "items": items
     }
 
 # =====================
@@ -136,7 +169,7 @@ def exchange_rate():
     kr = get_kr_indices()
     us = get_us_indices()
 
-    response = {
+    return jsonify({
         "version": "2.0",
         "template": {
             "outputs": [{
@@ -149,8 +182,7 @@ def exchange_rate():
                 }
             }]
         }
-    }
-    return jsonify(response)
+    })
 
 @app.route("/health", methods=["GET"])
 def health():
