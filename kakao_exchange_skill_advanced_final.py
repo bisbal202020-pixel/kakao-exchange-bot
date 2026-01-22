@@ -123,7 +123,175 @@ def get_exchange_rates_advanced():
         print(traceback.format_exc())
         return None
 
-def get_exchange_rates_upbit():
+def get_exchange_rates_hana():
+    """하나은행 환율 API로 실시간 환율 조회"""
+    try:
+        # 하나은행 환율 조회 API
+        url = "https://www.kebhana.com/cms/rate/index.do?contentUrl=/cms/rate/wpfxd651_01i.json"
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.kebhana.com/'
+        }
+        
+        print(f"🏦 하나은행 API 요청: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        print(f"📡 응답 상태: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✅ JSON 파싱 성공")
+            
+            # 하나은행 응답 구조에 맞게 파싱
+            rates = []
+            
+            # 통화 매핑
+            currency_map = {
+                'USD': {'code': 'USD', 'name': '미국 달러'},
+                'JPY': {'code': 'JPY100', 'name': '일본 엔'},
+                'EUR': {'code': 'EUR', 'name': '유로'},
+                'CNY': {'code': 'CNY', 'name': '중국 위안'},
+                'GBP': {'code': 'GBP', 'name': '영국 파운드'}
+            }
+            
+            for item in data:
+                cur_code = item.get('CUR_CD', '')
+                
+                if cur_code in currency_map:
+                    # 매매기준율
+                    deal_bas_r = item.get('DEAL_BAS_R', '0')
+                    
+                    # 전일 대비
+                    change_amt = item.get('CHANGE', '0')
+                    
+                    try:
+                        change_val = float(change_amt.replace(',', ''))
+                        if change_val > 0:
+                            change_str = f"+{change_val:.2f}"
+                        elif change_val < 0:
+                            change_str = f"{change_val:.2f}"
+                        else:
+                            change_str = "+0.00"
+                    except:
+                        change_str = "+0.00"
+                    
+                    # JPY는 100엔 기준
+                    if cur_code == 'JPY':
+                        try:
+                            rate_val = float(deal_bas_r.replace(',', ''))
+                            deal_bas_r = f"{rate_val * 100:,.2f}"
+                            if change_val != 0:
+                                change_val = change_val * 100
+                                change_str = f"+{change_val:.2f}" if change_val > 0 else f"{change_val:.2f}"
+                        except:
+                            pass
+                    
+                    rates.append({
+                        'currency': currency_map[cur_code]['code'],
+                        'rate': deal_bas_r,
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 {currency_map[cur_code]['code']}: {deal_bas_r} ({change_str})")
+            
+            if rates:
+                print(f"✅ 하나은행에서 실시간 환율 수집 성공: {len(rates)}개")
+                return rates
+            else:
+                print("⚠️ 하나은행 데이터 파싱 실패")
+                return None
+                
+        else:
+            print(f"❌ 하나은행 API 요청 실패: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ 하나은행 API 에러: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+def get_exchange_rates_naver():
+    """네이버 금융 환율 API (실시간 정확)"""
+    try:
+        # 네이버 금융 실시간 환율 API
+        base_url = "https://polling.finance.naver.com/api/realtime/marketindex/exchange"
+        
+        currencies = ['FRX.KRWUSD', 'FRX.KRWJPY', 'FRX.KRWEUR', 'FRX.KRWCNY', 'FRX.KRWGBP']
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://finance.naver.com/'
+        }
+        
+        rates = []
+        
+        for cur_code in currencies:
+            try:
+                url = f"{base_url}/{cur_code}"
+                
+                print(f"🌐 네이버 API 요청: {cur_code}")
+                response = requests.get(url, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    # 통화 코드
+                    if 'USD' in cur_code:
+                        currency = 'USD'
+                    elif 'JPY' in cur_code:
+                        currency = 'JPY100'
+                    elif 'EUR' in cur_code:
+                        currency = 'EUR'
+                    elif 'CNY' in cur_code:
+                        currency = 'CNY'
+                    elif 'GBP' in cur_code:
+                        currency = 'GBP'
+                    else:
+                        continue
+                    
+                    # 환율
+                    trade_price = data.get('tradePrice', 0)
+                    
+                    # 변동폭
+                    change_val = data.get('change', 0)
+                    
+                    # JPY는 100엔 기준
+                    if currency == 'JPY100':
+                        trade_price = trade_price * 100
+                        change_val = change_val * 100
+                    
+                    # 변동폭 문자열
+                    if change_val > 0:
+                        change_str = f"+{change_val:.2f}"
+                    elif change_val < 0:
+                        change_str = f"{change_val:.2f}"
+                    else:
+                        change_str = "+0.00"
+                    
+                    rates.append({
+                        'currency': currency,
+                        'rate': f"{trade_price:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 {currency}: {trade_price:,.2f} ({change_str})")
+                    
+            except Exception as e:
+                print(f"  ⚠️ {cur_code} 조회 실패: {e}")
+                continue
+        
+        if rates:
+            print(f"✅ 네이버 금융에서 실시간 환율 수집 성공: {len(rates)}개")
+            return rates
+        else:
+            print("❌ 네이버 금융 환율 수집 실패")
+            return None
+            
+    except Exception as e:
+        print(f"❌ 네이버 금융 에러: {e}")
+        return None
     """업비트 환율 API로 실시간 환율 조회 (안정적)"""
     try:
         # 업비트 환율 API
@@ -318,13 +486,13 @@ def get_exchange_rates_fallback():
         return None
 
 def get_fallback_rates():
-    """크롤링 실패시 사용할 폴백 환율 데이터 (실제 변동폭 포함)"""
+    """크롤링 실패시 사용할 폴백 환율 데이터 (2026-01-22 기준)"""
     return [
-        {'currency': 'USD', 'rate': '1,466.28', 'change': '+5.20', 'flag': '🇺🇸', 'name': '미국 달러'},
-        {'currency': 'JPY100', 'rate': '928.14', 'change': '+3.50', 'flag': '🇯🇵', 'name': '일본 엔'},
-        {'currency': 'EUR', 'rate': '1,718.21', 'change': '+4.80', 'flag': '🇪🇺', 'name': '유로'},
-        {'currency': 'CNY', 'rate': '212.40', 'change': '+0.63', 'flag': '🇨🇳', 'name': '중국 위안'},
-        {'currency': 'GBP', 'rate': '1,968.50', 'change': '+3.80', 'flag': '🇬🇧', 'name': '영국 파운드'}
+        {'currency': 'USD', 'rate': '1,470.60', 'change': '-2.90', 'flag': '🇺🇸', 'name': '미국 달러'},
+        {'currency': 'JPY100', 'rate': '928.14', 'change': '+2.87', 'flag': '🇯🇵', 'name': '일본 엔'},
+        {'currency': 'EUR', 'rate': '1,515.50', 'change': '+3.20', 'flag': '🇪🇺', 'name': '유로'},
+        {'currency': 'CNY', 'rate': '197.80', 'change': '+0.50', 'flag': '🇨🇳', 'name': '중국 위안'},
+        {'currency': 'GBP', 'rate': '1,805.30', 'change': '+2.10', 'flag': '🇬🇧', 'name': '영국 파운드'}
     ]
 
 def get_exchange_news():
@@ -466,20 +634,25 @@ def exchange_rate():
         print(f"수신 데이터: {req_data}")
         
         # 환율 정보 가져오기 (우선순위)
-        # 1. ExchangeRate-API (무료, 변동폭 추정 포함) - Render에서 작동!
-        rates = get_exchange_rates_fallback()
+        # 1. 네이버 금융 API (실시간 정확, 하나은행 데이터 사용)
+        rates = get_exchange_rates_naver()
         
-        # 2. 업비트 환율 API (빠르고 안정적, 하지만 Render에서 막힘)
+        # 2. 하나은행 API (공식 환율)
         if not rates:
-            print("🔄 업비트 API 시도중...")
-            rates = get_exchange_rates_upbit()
+            print("🔄 하나은행 API 시도중...")
+            rates = get_exchange_rates_hana()
         
-        # 3. 한국수출입은행 API (공식 환율, Render에서 막힘)
+        # 3. ExchangeRate-API (변동폭 포함)
+        if not rates:
+            print("🔄 대체 API 시도중...")
+            rates = get_exchange_rates_fallback()
+        
+        # 4. 한국수출입은행 API
         if not rates:
             print("🔄 한국수출입은행 API 시도중...")
             rates = get_exchange_rates_advanced()
         
-        # 4. 폴백 데이터 (고정값)
+        # 5. 폴백 데이터 (고정값)
         if not rates:
             print("⚠️ 모든 API 실패, 폴백 데이터 사용")
             rates = get_fallback_rates()
