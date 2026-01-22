@@ -4,6 +4,8 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import re
+import os
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -381,7 +383,173 @@ def get_exchange_rates_naver():
         print(traceback.format_exc())
         return None
 
-def get_exchange_rates_fallback():
+import os
+import json
+
+# 환율 저장 파일 경로
+RATES_FILE = '/tmp/last_rates.json'
+
+def save_rates(rates_data):
+    """환율을 파일에 저장"""
+    try:
+        with open(RATES_FILE, 'w') as f:
+            json.dump({
+                'timestamp': datetime.utcnow().isoformat(),
+                'rates': rates_data
+            }, f)
+    except:
+        pass
+
+def load_last_rates():
+    """저장된 환율 불러오기"""
+    try:
+        if os.path.exists(RATES_FILE):
+            with open(RATES_FILE, 'r') as f:
+                data = json.load(f)
+                return data.get('rates', {})
+    except:
+        pass
+    return {}
+
+def get_exchange_rates_with_change():
+    """ExchangeRate-API + 실제 변동폭 계산"""
+    try:
+        # 현재 환율 조회
+        url = "https://open.er-api.com/v6/latest/KRW"
+        
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('result') == 'success':
+                rates_data = data['rates']
+                
+                # 이전 환율 불러오기
+                last_rates = load_last_rates()
+                
+                rates = []
+                
+                # USD
+                if 'USD' in rates_data:
+                    usd_to_krw = 1 / rates_data['USD']
+                    
+                    # 변동폭 계산
+                    if 'USD' in last_rates:
+                        change = usd_to_krw - last_rates['USD']
+                    else:
+                        change = 0
+                    
+                    change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                    
+                    rates.append({
+                        'currency': 'USD',
+                        'rate': f"{usd_to_krw:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 USD: {usd_to_krw:,.2f} ({change_str})")
+                
+                # JPY (100엔 기준)
+                if 'JPY' in rates_data:
+                    jpy_to_krw = (1 / rates_data['JPY']) * 100
+                    
+                    if 'JPY100' in last_rates:
+                        change = jpy_to_krw - last_rates['JPY100']
+                    else:
+                        change = 0
+                    
+                    change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                    
+                    rates.append({
+                        'currency': 'JPY100',
+                        'rate': f"{jpy_to_krw:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 JPY100: {jpy_to_krw:,.2f} ({change_str})")
+                
+                # EUR
+                if 'EUR' in rates_data:
+                    eur_to_krw = 1 / rates_data['EUR']
+                    
+                    if 'EUR' in last_rates:
+                        change = eur_to_krw - last_rates['EUR']
+                    else:
+                        change = 0
+                    
+                    change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                    
+                    rates.append({
+                        'currency': 'EUR',
+                        'rate': f"{eur_to_krw:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 EUR: {eur_to_krw:,.2f} ({change_str})")
+                
+                # CNY
+                if 'CNY' in rates_data:
+                    cny_to_krw = 1 / rates_data['CNY']
+                    
+                    if 'CNY' in last_rates:
+                        change = cny_to_krw - last_rates['CNY']
+                    else:
+                        change = 0
+                    
+                    change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                    
+                    rates.append({
+                        'currency': 'CNY',
+                        'rate': f"{cny_to_krw:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 CNY: {cny_to_krw:,.2f} ({change_str})")
+                
+                # GBP
+                if 'GBP' in rates_data:
+                    gbp_to_krw = 1 / rates_data['GBP']
+                    
+                    if 'GBP' in last_rates:
+                        change = gbp_to_krw - last_rates['GBP']
+                    else:
+                        change = 0
+                    
+                    change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                    
+                    rates.append({
+                        'currency': 'GBP',
+                        'rate': f"{gbp_to_krw:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 GBP: {gbp_to_krw:,.2f} ({change_str})")
+                
+                # 현재 환율 저장
+                if rates:
+                    current_rates = {}
+                    if 'USD' in rates_data:
+                        current_rates['USD'] = 1 / rates_data['USD']
+                    if 'JPY' in rates_data:
+                        current_rates['JPY100'] = (1 / rates_data['JPY']) * 100
+                    if 'EUR' in rates_data:
+                        current_rates['EUR'] = 1 / rates_data['EUR']
+                    if 'CNY' in rates_data:
+                        current_rates['CNY'] = 1 / rates_data['CNY']
+                    if 'GBP' in rates_data:
+                        current_rates['GBP'] = 1 / rates_data['GBP']
+                    
+                    save_rates(current_rates)
+                    
+                    print(f"✅ ExchangeRate-API에서 환율 수집 성공: {len(rates)}개 (실시간 변동폭)")
+                    return rates
+        
+        return None
+        
+    except Exception as e:
+        print(f"❌ ExchangeRate-API 에러: {e}")
+        return None
     """대체 API: exchangerate-api.com (무료, API 키 불필요)"""
     try:
         # KRW 기준 환율
@@ -634,25 +802,20 @@ def exchange_rate():
         print(f"수신 데이터: {req_data}")
         
         # 환율 정보 가져오기 (우선순위)
-        # 1. 네이버 금융 API (실시간 정확, 하나은행 데이터 사용)
-        rates = get_exchange_rates_naver()
+        # 1. ExchangeRate-API + 실제 변동폭 계산 (가장 안정적)
+        rates = get_exchange_rates_with_change()
         
-        # 2. 하나은행 API (공식 환율)
+        # 2. 네이버 금융 API (Render에서 작동 안 함)
+        if not rates:
+            print("🔄 네이버 금융 API 시도중...")
+            rates = get_exchange_rates_naver()
+        
+        # 3. 하나은행 API (Render에서 작동 안 함)
         if not rates:
             print("🔄 하나은행 API 시도중...")
             rates = get_exchange_rates_hana()
         
-        # 3. ExchangeRate-API (변동폭 포함)
-        if not rates:
-            print("🔄 대체 API 시도중...")
-            rates = get_exchange_rates_fallback()
-        
-        # 4. 한국수출입은행 API
-        if not rates:
-            print("🔄 한국수출입은행 API 시도중...")
-            rates = get_exchange_rates_advanced()
-        
-        # 5. 폴백 데이터 (고정값)
+        # 4. 폴백 데이터 (고정값)
         if not rates:
             print("⚠️ 모든 API 실패, 폴백 데이터 사용")
             rates = get_fallback_rates()
