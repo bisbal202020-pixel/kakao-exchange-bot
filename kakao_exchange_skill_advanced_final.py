@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
 app = Flask(__name__)
@@ -554,7 +554,7 @@ def exchange_rate():
             },
             {
                 "simpleText": {
-                    "text": f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    "text": f"업데이트: {(datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')}"
                 }
             }
         ]
