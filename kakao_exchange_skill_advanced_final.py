@@ -123,67 +123,94 @@ def get_exchange_rates_advanced():
         print(traceback.format_exc())
         return None
 
-def get_exchange_rates_naver():
-    """네이버 금융 API로 실시간 환율 조회"""
+def get_exchange_rates_upbit():
+    """업비트 환율 API로 실시간 환율 조회 (안정적)"""
     try:
-        # 네이버 금융 환율 API (비공식이지만 안정적)
-        base_url = "https://quotation-api-cdn.dunamu.com/v1/forex/recent"
+        # 업비트 환율 API
+        url = "https://quotation-api-cdn.dunamu.com/v1/forex/recent?codes=FRX.KRWUSD,FRX.KRWJPY,FRX.KRWEUR,FRX.KRWCNY,FRX.KRWGBP"
         
-        # 필요한 통화 코드
-        codes = ['FRX.KRWUSD', 'FRX.KRWJPY', 'FRX.KRWEUR', 'FRX.KRWCNY', 'FRX.KRWGBP']
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
         
-        rates = []
+        print(f"🌐 업비트 API 요청: {url}")
+        response = requests.get(url, headers=headers, timeout=10)
         
-        for code in codes:
-            try:
-                url = f"{base_url}?codes={code}"
-                response = requests.get(url, timeout=10)
-                
-                if response.status_code == 200:
-                    data = response.json()
+        print(f"📡 응답 상태: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            print(f"✅ JSON 파싱 성공, 항목 수: {len(data)}")
+            
+            rates = []
+            
+            for item in data:
+                try:
+                    code = item.get('code', '')
                     
-                    if data and len(data) > 0:
-                        item = data[0]
-                        
-                        # 통화 코드 추출
-                        currency_code = code.replace('FRX.KRW', '')
-                        if currency_code == 'JPY':
-                            currency_code = 'JPY100'
-                            base_price = item.get('basePrice', 0) * 100
-                            change_price = item.get('changePrice', 0) * 100
-                        else:
-                            base_price = item.get('basePrice', 0)
-                            change_price = item.get('changePrice', 0)
-                        
-                        # 변동폭
-                        if change_price > 0:
-                            change_str = f"+{change_price:.2f}"
-                        elif change_price < 0:
-                            change_str = f"{change_price:.2f}"
-                        else:
-                            change_str = "0.00"
-                        
-                        rates.append({
-                            'currency': currency_code,
-                            'rate': f"{base_price:,.2f}",
-                            'change': change_str
-                        })
-                        
-                        print(f"  💱 {currency_code}: {base_price:,.2f} ({change_str})")
-                        
-            except Exception as e:
-                print(f"  ⚠️ {code} 조회 실패: {e}")
-                continue
-        
-        if rates:
-            print(f"✅ 네이버 금융에서 실시간 환율 수집 성공: {len(rates)}개")
-            return rates
+                    # 통화 코드 추출
+                    if code == 'FRX.KRWUSD':
+                        currency_code = 'USD'
+                    elif code == 'FRX.KRWJPY':
+                        currency_code = 'JPY100'
+                    elif code == 'FRX.KRWEUR':
+                        currency_code = 'EUR'
+                    elif code == 'FRX.KRWCNY':
+                        currency_code = 'CNY'
+                    elif code == 'FRX.KRWGBP':
+                        currency_code = 'GBP'
+                    else:
+                        continue
+                    
+                    # 환율 (basePrice)
+                    base_price = item.get('basePrice', 0)
+                    
+                    # JPY는 100엔 기준으로
+                    if currency_code == 'JPY100':
+                        base_price = base_price * 100
+                    
+                    # 변동폭 (changePrice)
+                    change_price = item.get('changePrice', 0)
+                    
+                    if currency_code == 'JPY100':
+                        change_price = change_price * 100
+                    
+                    # 변동폭 문자열
+                    if change_price > 0:
+                        change_str = f"+{change_price:.2f}"
+                    elif change_price < 0:
+                        change_str = f"{change_price:.2f}"
+                    else:
+                        change_str = "+0.00"
+                    
+                    rates.append({
+                        'currency': currency_code,
+                        'rate': f"{base_price:,.2f}",
+                        'change': change_str
+                    })
+                    
+                    print(f"  💱 {currency_code}: {base_price:,.2f} ({change_str})")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ 항목 파싱 에러: {e}")
+                    continue
+            
+            if rates:
+                print(f"✅ 업비트에서 실시간 환율 수집 성공: {len(rates)}개")
+                return rates
+            else:
+                print("❌ 업비트 환율 수집 실패: 데이터 없음")
+                return None
+                
         else:
-            print("❌ 네이버 금융 환율 수집 실패")
+            print(f"❌ 업비트 API 요청 실패: {response.status_code}")
+            print(f"   응답: {response.text[:200]}")
             return None
             
     except Exception as e:
-        print(f"❌ 네이버 금융 에러: {e}")
+        print(f"❌ 업비트 API 에러: {e}")
+        import traceback
+        print(traceback.format_exc())
         return None
 
 def get_exchange_rates_fallback():
@@ -406,8 +433,8 @@ def exchange_rate():
         print(f"수신 데이터: {req_data}")
         
         # 환율 정보 가져오기 (우선순위)
-        # 1. 네이버 금융 (빠르고 안정적, 변동폭 포함)
-        rates = get_exchange_rates_naver()
+        # 1. 업비트 환율 API (빠르고 안정적, 변동폭 포함)
+        rates = get_exchange_rates_upbit()
         
         # 2. 한국수출입은행 API (공식 환율, 접속 문제 가능)
         if not rates:
@@ -435,18 +462,12 @@ def exchange_rate():
         # 환율 ListCard 아이템
         exchange_list_items = []
         for rate in rates:
+            change_icon = "▲" if '+' in str(rate['change']) else "▼" if '-' in str(rate['change']) else "━"
             change_value = str(rate['change']).replace('+', '').replace('-', '')
-            
-            # 변동폭이 0이면 아이콘 없이 표시
-            if change_value == '0.00' or change_value == '0.0' or change_value == '0':
-                description = rate['rate']
-            else:
-                change_icon = "▲" if '+' in str(rate['change']) else "▼"
-                description = f"{rate['rate']}  {change_icon} {change_value}"
             
             exchange_list_items.append({
                 "title": f"{rate['flag']} {rate['currency']}",
-                "description": description
+                "description": f"{rate['rate']}  {change_icon} {change_value}"
             })
         
         # 뉴스 ListCard 아이템 (이미지 포함)
