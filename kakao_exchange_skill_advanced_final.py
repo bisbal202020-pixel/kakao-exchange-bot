@@ -766,13 +766,13 @@ def get_exchange_rates_with_change():
         return None
 
 def get_fallback_rates():
-    """크롤링 실패시 사용할 폴백 환율 데이터 (2026-01-22 15:00 기준 - 네이버 금융)"""
+    """크롤링 실패시 사용할 폴백 환율 데이터 (2026-01-22 15:42 환전 고시 환율)"""
     return [
-        {'currency': 'USD', 'rate': '1,470.60', 'change': '-2.90', 'flag': '🇺🇸', 'name': '미국 달러'},
-        {'currency': 'JPY100', 'rate': '928.14', 'change': '+2.87', 'flag': '🇯🇵', 'name': '일본 엔'},
-        {'currency': 'EUR', 'rate': '1,515.50', 'change': '+3.20', 'flag': '🇪🇺', 'name': '유로'},
-        {'currency': 'CNY', 'rate': '197.80', 'change': '+0.50', 'flag': '🇨🇳', 'name': '중국 위안'},
-        {'currency': 'GBP', 'rate': '1,805.30', 'change': '+2.10', 'flag': '🇬🇧', 'name': '영국 파운드'}
+        {'currency': 'USD', 'rate': '1,469.20', 'change': '+1.90', 'flag': '🇺🇸', 'name': '미국 달러'},
+        {'currency': 'JPY100', 'rate': '925.42', 'change': '-1.14', 'flag': '🇯🇵', 'name': '일본 엔'},
+        {'currency': 'EUR', 'rate': '1,717.27', 'change': '+2.73', 'flag': '🇪🇺', 'name': '유로'},
+        {'currency': 'CNY', 'rate': '211.11', 'change': '+0.29', 'flag': '🇨🇳', 'name': '중국 위안'},
+        {'currency': 'GBP', 'rate': '1,972.33', 'change': '+2.92', 'flag': '🇬🇧', 'name': '영국 파운드'}
     ]
 
 def get_exchange_news():
@@ -994,7 +994,7 @@ def exchange_rate():
             },
             {
                 "simpleText": {
-                    "text": f"업데이트: {(datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')} (네이버금융 기준)"
+                    "text": f"업데이트: {(datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')} (환전고시환율)"
                 }
             }
         ]
