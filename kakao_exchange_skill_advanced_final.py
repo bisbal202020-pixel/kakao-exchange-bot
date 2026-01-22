@@ -401,7 +401,7 @@ def save_rates(rates_data):
         pass
 
 def load_last_rates():
-    """저장된 환율 불러오기"""
+    """저장된 환율 불러오기 (없으면 기준값 사용)"""
     try:
         if os.path.exists(RATES_FILE):
             with open(RATES_FILE, 'r') as f:
@@ -409,7 +409,15 @@ def load_last_rates():
                 return data.get('rates', {})
     except:
         pass
-    return {}
+    
+    # 초기 기준 환율 (2026-01-22 오전 기준)
+    return {
+        'USD': 1473.50,
+        'JPY100': 925.27,
+        'EUR': 1514.30,
+        'CNY': 197.30,
+        'GBP': 1803.20
+    }
 
 def get_exchange_rates_with_change():
     """ExchangeRate-API + 실제 변동폭 계산"""
