@@ -765,7 +765,6 @@ def get_exchange_rates_with_change():
         print(f"❌ ExchangeRate-API 에러: {e}")
         return None
 
-```python
 def get_fallback_rates():
     """크롤링 실패시 사용할 폴백 환율 데이터 (2026-01-22 15:00 기준 - 네이버 금융)"""
     return [
@@ -775,7 +774,6 @@ def get_fallback_rates():
         {'currency': 'CNY', 'rate': '197.80', 'change': '+0.50', 'flag': '🇨🇳', 'name': '중국 위안'},
         {'currency': 'GBP', 'rate': '1,805.30', 'change': '+2.10', 'flag': '🇬🇧', 'name': '영국 파운드'}
     ]
-```
 
 def get_exchange_news():
     """환율 관련 뉴스 크롤링 (매일경제, MBN, 매경이코노미만)"""
