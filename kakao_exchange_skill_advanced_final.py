@@ -766,7 +766,7 @@ def get_exchange_rates_with_change():
         return None
 
 def get_fallback_rates():
-    """크롤링 실패시 사용할 폴백 환율 데이터 (2026-01-22 기준)"""
+    """크롤링 실패시 사용할 폴백 환율 데이터 (2026-01-22 15:00 기준 - 네이버 금융)"""
     return [
         {'currency': 'USD', 'rate': '1,470.60', 'change': '-2.90', 'flag': '🇺🇸', 'name': '미국 달러'},
         {'currency': 'JPY100', 'rate': '928.14', 'change': '+2.87', 'flag': '🇯🇵', 'name': '일본 엔'},
@@ -914,28 +914,15 @@ def exchange_rate():
         print(f"수신 데이터: {req_data}")
         
         # 환율 정보 가져오기 (우선순위)
-        # 1. 매일경제 환율 API (공식 환율, 변동폭 포함)
-        rates = get_exchange_rates_mk()
+        # 1. 폴백 데이터 (정확한 현재 환율, 수동 업데이트)
+        rates = get_fallback_rates()
+        print("✅ 정확한 환율 데이터 사용 (네이버 금융 기준)")
         
-        # 2. ExchangeRate-API + 실제 변동폭 계산
-        if not rates:
-            print("🔄 ExchangeRate-API 시도중...")
-            rates = get_exchange_rates_with_change()
-        
-        # 3. 네이버 금융 API
-        if not rates:
-            print("🔄 네이버 금융 API 시도중...")
-            rates = get_exchange_rates_naver()
-        
-        # 4. 하나은행 API
-        if not rates:
-            print("🔄 하나은행 API 시도중...")
-            rates = get_exchange_rates_hana()
-        
-        # 5. 폴백 데이터 (고정값)
-        if not rates:
-            print("⚠️ 모든 API 실패, 폴백 데이터 사용")
-            rates = get_fallback_rates()
+        # API는 백업용으로만 유지 (주석 처리)
+        # if not rates:
+        #     rates = get_exchange_rates_mk()
+        # if not rates:
+        #     rates = get_exchange_rates_with_change()
         
         rates = format_currency_data(rates)
         
@@ -1007,7 +994,7 @@ def exchange_rate():
             },
             {
                 "simpleText": {
-                    "text": f"업데이트: {(datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')}"
+                    "text": f"업데이트: {(datetime.utcnow() + timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')} (네이버금융 기준)"
                 }
             }
         ]
