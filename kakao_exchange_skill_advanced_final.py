@@ -123,6 +123,69 @@ def get_exchange_rates_advanced():
         print(traceback.format_exc())
         return None
 
+def get_exchange_rates_naver():
+    """네이버 금융 API로 실시간 환율 조회"""
+    try:
+        # 네이버 금융 환율 API (비공식이지만 안정적)
+        base_url = "https://quotation-api-cdn.dunamu.com/v1/forex/recent"
+        
+        # 필요한 통화 코드
+        codes = ['FRX.KRWUSD', 'FRX.KRWJPY', 'FRX.KRWEUR', 'FRX.KRWCNY', 'FRX.KRWGBP']
+        
+        rates = []
+        
+        for code in codes:
+            try:
+                url = f"{base_url}?codes={code}"
+                response = requests.get(url, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if data and len(data) > 0:
+                        item = data[0]
+                        
+                        # 통화 코드 추출
+                        currency_code = code.replace('FRX.KRW', '')
+                        if currency_code == 'JPY':
+                            currency_code = 'JPY100'
+                            base_price = item.get('basePrice', 0) * 100
+                            change_price = item.get('changePrice', 0) * 100
+                        else:
+                            base_price = item.get('basePrice', 0)
+                            change_price = item.get('changePrice', 0)
+                        
+                        # 변동폭
+                        if change_price > 0:
+                            change_str = f"+{change_price:.2f}"
+                        elif change_price < 0:
+                            change_str = f"{change_price:.2f}"
+                        else:
+                            change_str = "0.00"
+                        
+                        rates.append({
+                            'currency': currency_code,
+                            'rate': f"{base_price:,.2f}",
+                            'change': change_str
+                        })
+                        
+                        print(f"  💱 {currency_code}: {base_price:,.2f} ({change_str})")
+                        
+            except Exception as e:
+                print(f"  ⚠️ {code} 조회 실패: {e}")
+                continue
+        
+        if rates:
+            print(f"✅ 네이버 금융에서 실시간 환율 수집 성공: {len(rates)}개")
+            return rates
+        else:
+            print("❌ 네이버 금융 환율 수집 실패")
+            return None
+            
+    except Exception as e:
+        print(f"❌ 네이버 금융 에러: {e}")
+        return None
+
 def get_exchange_rates_fallback():
     """대체 API: exchangerate-api.com (무료, API 키 불필요)"""
     try:
@@ -343,15 +406,20 @@ def exchange_rate():
         print(f"수신 데이터: {req_data}")
         
         # 환율 정보 가져오기 (우선순위)
-        # 1. 한국수출입은행 API (공식 환율)
-        rates = get_exchange_rates_advanced()
+        # 1. 네이버 금융 (빠르고 안정적, 변동폭 포함)
+        rates = get_exchange_rates_naver()
         
-        # 2. ExchangeRate-API (무료, API 키 불필요)
+        # 2. 한국수출입은행 API (공식 환율, 접속 문제 가능)
+        if not rates:
+            print("🔄 한국수출입은행 API 시도중...")
+            rates = get_exchange_rates_advanced()
+        
+        # 3. ExchangeRate-API (무료, API 키 불필요, 변동폭 없음)
         if not rates:
             print("🔄 대체 API 시도중...")
             rates = get_exchange_rates_fallback()
         
-        # 3. 폴백 데이터 (고정값)
+        # 4. 폴백 데이터 (고정값)
         if not rates:
             print("⚠️ 모든 API 실패, 폴백 데이터 사용")
             rates = get_fallback_rates()
