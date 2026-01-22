@@ -17,11 +17,19 @@ def get_exchange_rates_advanced():
         # API 키 (환경변수에서 가져오거나 직접 입력)
         api_key = os.getenv('EXIM_API_KEY', 'YOUR_API_KEY_HERE')
         
+        # API 키 확인 로그
+        if api_key == 'YOUR_API_KEY_HERE':
+            print("⚠️ 한국수출입은행 API 키가 설정되지 않았습니다")
+            return None
+        
+        print(f"🔑 API 키 확인: {api_key[:10]}... (길이: {len(api_key)})")
+        
         # 오늘 날짜 (YYYYMMDD)
         today = datetime.now().strftime('%Y%m%d')
+        print(f"📅 조회 날짜: {today}")
         
         # 한국수출입은행 API
-        url = f'https://www.koreaexim.go.kr/site/program/financial/exchangeJSON'
+        url = 'https://www.koreaexim.go.kr/site/program/financial/exchangeJSON'
         params = {
             'authkey': api_key,
             'searchdate': today,
@@ -29,13 +37,29 @@ def get_exchange_rates_advanced():
         }
         
         headers = {
-            'User-Agent': 'Mozilla/5.0'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json'
         }
         
-        response = requests.get(url, params=params, headers=headers, timeout=10)
+        print(f"🌐 API 요청: {url}")
+        print(f"📊 파라미터: searchdate={today}, data=AP01")
+        
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        
+        print(f"📡 응답 상태: {response.status_code}")
         
         if response.status_code == 200:
-            data = response.json()
+            try:
+                data = response.json()
+                print(f"✅ JSON 파싱 성공, 항목 수: {len(data) if isinstance(data, list) else 'dict'}")
+            except:
+                print(f"❌ JSON 파싱 실패, 응답 내용: {response.text[:200]}")
+                return None
+            
+            # 응답이 에러 메시지인지 확인
+            if isinstance(data, dict) and 'error' in data:
+                print(f"❌ API 에러 응답: {data}")
+                return None
             
             # 필요한 통화만 추출
             target_currencies = {
@@ -73,19 +97,30 @@ def get_exchange_rates_advanced():
                         'rate': deal_bas_r,
                         'change': change_str
                     })
+                    
+                    print(f"  💱 {currency_code}: {deal_bas_r} ({change_str})")
             
             if rates:
                 print(f"✅ 한국수출입은행 API에서 실시간 환율 수집 성공: {len(rates)}개")
                 return rates
             else:
-                print("⚠️ API 응답은 있지만 데이터가 없음")
+                print("⚠️ API 응답은 있지만 대상 통화 데이터가 없음")
                 return None
         else:
             print(f"❌ API 요청 실패: {response.status_code}")
+            print(f"   응답 내용: {response.text[:500]}")
             return None
             
+    except requests.exceptions.Timeout:
+        print(f"⏱️ 한국수출입은행 API 타임아웃 (30초 초과)")
+        return None
+    except requests.exceptions.ConnectionError as e:
+        print(f"🔌 한국수출입은행 API 연결 실패: {e}")
+        return None
     except Exception as e:
         print(f"❌ 한국수출입은행 API 에러: {e}")
+        import traceback
+        print(traceback.format_exc())
         return None
 
 def get_exchange_rates_fallback():
@@ -332,12 +367,18 @@ def exchange_rate():
         # 환율 ListCard 아이템
         exchange_list_items = []
         for rate in rates:
-            change_icon = "▲" if '+' in str(rate['change']) else "▼" if '-' in str(rate['change']) else "━"
             change_value = str(rate['change']).replace('+', '').replace('-', '')
+            
+            # 변동폭이 0이면 아이콘 없이 표시
+            if change_value == '0.00' or change_value == '0.0' or change_value == '0':
+                description = rate['rate']
+            else:
+                change_icon = "▲" if '+' in str(rate['change']) else "▼"
+                description = f"{rate['rate']}  {change_icon} {change_value}"
             
             exchange_list_items.append({
                 "title": f"{rate['flag']} {rate['currency']}",
-                "description": f"{rate['rate']}  {change_icon} {change_value}"
+                "description": description
             })
         
         # 뉴스 ListCard 아이템 (이미지 포함)
