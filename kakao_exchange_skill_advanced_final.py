@@ -72,7 +72,7 @@ def get_fallback_rates():
         {'currency': 'JPY100', 'rate': '933.54', 'change': '+6.58', 'flag': '🇯🇵', 'name': '일본 엔'},
         {'currency': 'EUR', 'rate': '1,711.8', 'change': '+4.93', 'flag': '🇪🇺', 'name': '유로'},
         {'currency': 'CNY', 'rate': '211.78', 'change': '+0.63', 'flag': '🇨🇳', 'name': '중국 위안'},
-        {'currency': 'AUD', 'rate': '986.37', 'change': '+1.49', 'flag': '🇦🇺', 'name': '호주 달러'}
+        {'currency': 'GBP', 'rate': '2,045.3', 'change': '+3.8', 'flag': '🇬🇧', 'name': '영국 파운드'}
     ]
 
 def get_exchange_news():
@@ -186,7 +186,6 @@ def format_currency_data(rates):
         'JPY': {'flag': '🇯🇵', 'name': '일본 엔'},
         'EUR': {'flag': '🇪🇺', 'name': '유로'},
         'CNY': {'flag': '🇨🇳', 'name': '중국 위안'},
-        'AUD': {'flag': '🇦🇺', 'name': '호주 달러'},
         'GBP': {'flag': '🇬🇧', 'name': '영국 파운드'},
         'CHF': {'flag': '🇨🇭', 'name': '스위스 프랑'},
         'CAD': {'flag': '🇨🇦', 'name': '캐나다 달러'}
