@@ -125,6 +125,110 @@ def get_exchange_rates_advanced():
         print(traceback.format_exc())
         return None
 
+def get_exchange_rates_mk():
+    """매일경제 환율 API로 실시간 환율 조회 (다중 프록시 시도)"""
+    
+    # 시도할 프록시 목록
+    proxy_services = [
+        ("AllOrigins", "https://api.allorigins.win/raw?url="),
+        ("CorsProxy.io", "https://corsproxy.io/?"),
+        ("직접 연결", "")
+    ]
+    
+    target_url = "https://stock.mk.co.kr/json/exchangeList.php"
+    
+    for proxy_name, proxy_url in proxy_services:
+        try:
+            full_url = proxy_url + target_url if proxy_url else target_url
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            print(f"💰 매일경제 API 요청 ({proxy_name}): {target_url}")
+            response = requests.get(full_url, headers=headers, timeout=15)
+            
+            print(f"📡 응답 상태: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"✅ JSON 파싱 성공, 항목 수: {len(data) if isinstance(data, list) else '?'}")
+                
+                # 통화 매핑
+                currency_map = {
+                    'USD': {'code': 'USD', 'name': '미국 달러'},
+                    'JPY': {'code': 'JPY100', 'name': '일본 엔'},
+                    'EUR': {'code': 'EUR', 'name': '유로'},
+                    'CNY': {'code': 'CNY', 'name': '중국 위안'},
+                    'GBP': {'code': 'GBP', 'name': '영국 파운드'}
+                }
+                
+                rates = []
+                
+                for item in data:
+                    cur_code = item.get('code', '') or item.get('CUR_CD', '')
+                    
+                    if cur_code in currency_map:
+                        # 매매기준율 (다양한 필드명 시도)
+                        base_rate = (item.get('base', '') or 
+                                    item.get('BASE', '') or 
+                                    item.get('deal_bas_r', '') or 
+                                    item.get('DEAL_BAS_R', '') or '0')
+                        
+                        # 전일대비
+                        change = (item.get('change', '') or 
+                                 item.get('CHANGE', '') or 
+                                 item.get('dod', '') or '0')
+                        
+                        try:
+                            change_val = float(str(change).replace(',', ''))
+                            if change_val > 0:
+                                change_str = f"+{change_val:.2f}"
+                            elif change_val < 0:
+                                change_str = f"{change_val:.2f}"
+                            else:
+                                change_str = "+0.00"
+                        except:
+                            change_str = "+0.00"
+                        
+                        # JPY는 100엔 기준
+                        rate_val = str(base_rate)
+                        if cur_code == 'JPY':
+                            try:
+                                rate_num = float(str(base_rate).replace(',', ''))
+                                rate_val = f"{rate_num * 100:,.2f}"
+                                if change_val != 0:
+                                    change_val = change_val * 100
+                                    change_str = f"+{change_val:.2f}" if change_val > 0 else f"{change_val:.2f}"
+                            except:
+                                pass
+                        
+                        rates.append({
+                            'currency': currency_map[cur_code]['code'],
+                            'rate': rate_val,
+                            'change': change_str
+                        })
+                        
+                        print(f"  💱 {currency_map[cur_code]['code']}: {rate_val} ({change_str})")
+                
+                if rates:
+                    print(f"✅ 매일경제에서 실시간 환율 수집 성공: {len(rates)}개 ({proxy_name} 사용)")
+                    return rates
+                else:
+                    print(f"⚠️ {proxy_name} 데이터 파싱 실패, 다음 프록시 시도...")
+                    continue
+                    
+            else:
+                print(f"❌ {proxy_name} 요청 실패: {response.status_code}, 다음 프록시 시도...")
+                continue
+                
+        except Exception as e:
+            print(f"❌ {proxy_name} 에러: {e}, 다음 프록시 시도...")
+            continue
+    
+    print("❌ 모든 프록시 실패")
+    return None
+
 def get_exchange_rates_hana():
     """하나은행 환율 API로 실시간 환율 조회"""
     try:
@@ -810,20 +914,25 @@ def exchange_rate():
         print(f"수신 데이터: {req_data}")
         
         # 환율 정보 가져오기 (우선순위)
-        # 1. ExchangeRate-API + 실제 변동폭 계산 (가장 안정적)
-        rates = get_exchange_rates_with_change()
+        # 1. 매일경제 환율 API (공식 환율, 변동폭 포함)
+        rates = get_exchange_rates_mk()
         
-        # 2. 네이버 금융 API (Render에서 작동 안 함)
+        # 2. ExchangeRate-API + 실제 변동폭 계산
+        if not rates:
+            print("🔄 ExchangeRate-API 시도중...")
+            rates = get_exchange_rates_with_change()
+        
+        # 3. 네이버 금융 API
         if not rates:
             print("🔄 네이버 금융 API 시도중...")
             rates = get_exchange_rates_naver()
         
-        # 3. 하나은행 API (Render에서 작동 안 함)
+        # 4. 하나은행 API
         if not rates:
             print("🔄 하나은행 API 시도중...")
             rates = get_exchange_rates_hana()
         
-        # 4. 폴백 데이터 (고정값)
+        # 5. 폴백 데이터 (고정값)
         if not rates:
             print("⚠️ 모든 API 실패, 폴백 데이터 사용")
             rates = get_fallback_rates()
