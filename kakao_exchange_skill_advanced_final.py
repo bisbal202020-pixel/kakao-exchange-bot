@@ -9,61 +9,155 @@ app = Flask(__name__)
 CORS(app)
 
 def get_exchange_rates_advanced():
-    """매일경제에서 실시간 환율 정보 크롤링 (고급)"""
+    """한국수출입은행 API로 실시간 환율 정보 조회"""
     try:
-        url = "https://stock.mk.co.kr/"
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1'
+        from datetime import datetime
+        import os
+        
+        # API 키 (환경변수에서 가져오거나 직접 입력)
+        api_key = os.getenv('EXIM_API_KEY', 'YOUR_API_KEY_HERE')
+        
+        # 오늘 날짜 (YYYYMMDD)
+        today = datetime.now().strftime('%Y%m%d')
+        
+        # 한국수출입은행 API
+        url = f'https://www.koreaexim.go.kr/site/program/financial/exchangeJSON'
+        params = {
+            'authkey': api_key,
+            'searchdate': today,
+            'data': 'AP01'
         }
         
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
+        headers = {
+            'User-Agent': 'Mozilla/5.0'
+        }
         
-        soup = BeautifulSoup(response.text, 'html.parser')
+        response = requests.get(url, params=params, headers=headers, timeout=10)
         
-        rates = []
+        if response.status_code == 200:
+            data = response.json()
+            
+            # 필요한 통화만 추출
+            target_currencies = {
+                'USD': '미국 달러',
+                'JPY(100)': '일본 엔',
+                'EUR': '유로',
+                'CNY': '중국 위안',
+                'GBP': '영국 파운드'
+            }
+            
+            rates = []
+            
+            for item in data:
+                cur_unit = item.get('cur_unit', '')
+                
+                if cur_unit in target_currencies:
+                    # 환율
+                    deal_bas_r = item.get('deal_bas_r', '0')
+                    rate = deal_bas_r.replace(',', '')
+                    
+                    # 전일 대비
+                    try:
+                        cur_val = float(rate)
+                        yest_val = float(item.get('bkpr', '0').replace(',', ''))
+                        change = cur_val - yest_val
+                        change_str = f"+{change:.2f}" if change > 0 else f"{change:.2f}"
+                    except:
+                        change_str = "+0.00"
+                    
+                    # 통화 코드 정리
+                    currency_code = 'JPY100' if cur_unit == 'JPY(100)' else cur_unit
+                    
+                    rates.append({
+                        'currency': currency_code,
+                        'rate': deal_bas_r,
+                        'change': change_str
+                    })
+            
+            if rates:
+                print(f"✅ 한국수출입은행 API에서 실시간 환율 수집 성공: {len(rates)}개")
+                return rates
+            else:
+                print("⚠️ API 응답은 있지만 데이터가 없음")
+                return None
+        else:
+            print(f"❌ API 요청 실패: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ 한국수출입은행 API 에러: {e}")
+        return None
+
+def get_exchange_rates_fallback():
+    """대체 API: exchangerate-api.com (무료, API 키 불필요)"""
+    try:
+        # KRW 기준 환율
+        url = "https://open.er-api.com/v6/latest/KRW"
         
-        # 방법 1: 클래스나 ID로 환율 섹션 찾기
-        # exchange_section = soup.find('div', class_='exchange') 또는 적절한 선택자
+        response = requests.get(url, timeout=10)
         
-        # 방법 2: 테이블에서 환율 정보 추출
-        tables = soup.find_all('table')
-        for table in tables:
-            rows = table.find_all('tr')
-            for row in rows:
-                cols = row.find_all('td')
-                if len(cols) >= 3:
-                    currency = cols[0].text.strip()
-                    if 'USD' in currency or 'JPY' in currency or 'EUR' in currency or 'CNY' in currency or 'AUD' in currency:
-                        rate_text = cols[1].text.strip()
-                        change_text = cols[2].text.strip()
-                        
-                        rates.append({
-                            'currency': currency,
-                            'rate': rate_text,
-                            'change': change_text
-                        })
+        if response.status_code == 200:
+            data = response.json()
+            
+            if data.get('result') == 'success':
+                rates_data = data['rates']
+                
+                rates = []
+                
+                # USD
+                if 'USD' in rates_data:
+                    usd_to_krw = 1 / rates_data['USD']
+                    rates.append({
+                        'currency': 'USD',
+                        'rate': f"{usd_to_krw:,.2f}",
+                        'change': '+0.00'
+                    })
+                
+                # JPY (100엔 기준)
+                if 'JPY' in rates_data:
+                    jpy_to_krw = (1 / rates_data['JPY']) * 100
+                    rates.append({
+                        'currency': 'JPY100',
+                        'rate': f"{jpy_to_krw:,.2f}",
+                        'change': '+0.00'
+                    })
+                
+                # EUR
+                if 'EUR' in rates_data:
+                    eur_to_krw = 1 / rates_data['EUR']
+                    rates.append({
+                        'currency': 'EUR',
+                        'rate': f"{eur_to_krw:,.2f}",
+                        'change': '+0.00'
+                    })
+                
+                # CNY
+                if 'CNY' in rates_data:
+                    cny_to_krw = 1 / rates_data['CNY']
+                    rates.append({
+                        'currency': 'CNY',
+                        'rate': f"{cny_to_krw:,.2f}",
+                        'change': '+0.00'
+                    })
+                
+                # GBP
+                if 'GBP' in rates_data:
+                    gbp_to_krw = 1 / rates_data['GBP']
+                    rates.append({
+                        'currency': 'GBP',
+                        'rate': f"{gbp_to_krw:,.2f}",
+                        'change': '+0.00'
+                    })
+                
+                if rates:
+                    print(f"✅ ExchangeRate-API에서 환율 수집 성공: {len(rates)}개")
+                    return rates
         
-        # 방법 3: API 엔드포인트 호출 (매일경제가 API를 제공하는 경우)
-        # api_url = "https://stock.mk.co.kr/api/exchange"
-        # api_response = requests.get(api_url, headers=headers)
-        # data = api_response.json()
-        
-        # 데이터가 비어있으면 폴백 데이터 사용
-        if not rates:
-            print("실시간 크롤링 실패, 폴백 데이터 사용")
-            rates = get_fallback_rates()
-        
-        return rates
+        return None
         
     except Exception as e:
-        print(f"크롤링 에러: {e}")
-        return get_fallback_rates()
+        print(f"❌ ExchangeRate-API 에러: {e}")
+        return None
 
 def get_fallback_rates():
     """크롤링 실패시 사용할 폴백 환율 데이터"""
@@ -213,8 +307,20 @@ def exchange_rate():
         req_data = request.get_json()
         print(f"수신 데이터: {req_data}")
         
-        # 환율 정보 가져오기
+        # 환율 정보 가져오기 (우선순위)
+        # 1. 한국수출입은행 API (공식 환율)
         rates = get_exchange_rates_advanced()
+        
+        # 2. ExchangeRate-API (무료, API 키 불필요)
+        if not rates:
+            print("🔄 대체 API 시도중...")
+            rates = get_exchange_rates_fallback()
+        
+        # 3. 폴백 데이터 (고정값)
+        if not rates:
+            print("⚠️ 모든 API 실패, 폴백 데이터 사용")
+            rates = get_fallback_rates()
+        
         rates = format_currency_data(rates)
         
         if not rates:
